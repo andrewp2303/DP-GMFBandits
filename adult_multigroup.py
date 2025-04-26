@@ -17,6 +17,7 @@ def main(
     noise_magnitude=0.2,  # None to use the true rewards from the dataset
     expl_coeff_oful=0.01,  # OFUL exploration coefficient. O is equivalent to Greedy.
     plot_mult=1.5,  # higher value gives a larger plot
+    plot_flag=False,
 ):
 
     exp_dir = (
@@ -36,8 +37,10 @@ def main(
         expl_coeff_oful=expl_coeff_oful,
         T=T,
         compute_density=True,
+        plot_flag=plot_flag,
     )
-    plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
+    if plot_flag:
+        plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
 
 
 def run(
@@ -48,7 +51,7 @@ def run(
     compute_density=False,
     group="RAC1P",
     density=1,
-    n_samples_per_group=50000,
+    n_samples_per_group=5000,
     poly_degree=1,
     noise_magnitude=None,
     # algo parameters
@@ -59,6 +62,7 @@ def run(
     algo_seeds=tuple(range(10)),
     plot_mult=0.8,
     exp_dir="exps/adult_multigroup/simple/",
+    plot_flag=False,
 ):
     from pathlib import Path
 
@@ -94,6 +98,7 @@ def run(
         save=True,
         dir=f"{exp_dir}plots/",
         suffix="adult_",
+        plot_flag=plot_flag,
     )
 
     policies_generators = [
@@ -122,17 +127,18 @@ def run(
         policy_name = dfs[0]["policy"].drop_duplicates()[0]
 
         print(f"Results for {policy_name}")
-        for df in dfs:
-            df.hist(column="sel_group", bins=P.n_groups)
-            break
-        plt.title(f"sel_group_histo_{policy_name}")
-        plt.show()
-
-        for m in ["pseudo_regret", "pseudo_fair_regret"]:
+        if plot_flag:
             for df in dfs:
-                df[m].plot()
-            plt.title(f"{m}_{policy_name}")
+                df.hist(column="sel_group", bins=P.n_groups)
+                break
+            plt.title(f"sel_group_histo_{policy_name}")
             plt.show()
+
+            for m in ["pseudo_regret", "pseudo_fair_regret"]:
+                for df in dfs:
+                    df[m].plot()
+                plt.title(f"{m}_{policy_name}")
+                plt.show()
         for p in ps:
             print(f"mu_est_MSE = {np.mean((p.get_mu_estimate() - P.mu_star) ** 2)}")
             print(f"mu_est = {p.get_mu_estimate()}")
@@ -155,7 +161,10 @@ def run(
 
 
 if __name__ == "__main__":
-    # main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--plot', action='store_true', help='Enable plotting (default: disabled)')
+    args = parser.parse_args()
     for n_arms in (20,):
-        for n_samples_per_group in (50000,):
-            main(n_arms=n_arms, n_samples_per_group=n_samples_per_group, n_seeds=10)
+        for n_samples_per_group in (5000,):
+            main(n_arms=n_arms, n_samples_per_group=n_samples_per_group, n_seeds=10, plot_flag=args.plot)

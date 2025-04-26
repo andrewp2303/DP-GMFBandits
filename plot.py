@@ -15,6 +15,7 @@ def plot_rewards(
     save=True,
     dir="",
     suffix="",
+    plot_flag=True,
 ):
     n_arms = len(rewards[0])
 
@@ -45,7 +46,8 @@ def plot_rewards(
         if save:
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.png")
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.pdf")
-        plt.show()
+        if plot_flag:
+            plt.show()
 
     # figure(figsize=fig_size, dpi=dpi)
     # for i in range(n_arms):
@@ -246,11 +248,8 @@ def main(mult=0.8, dpi=200, save_fig=True, dir="", x_dim=4, y_dim=3.5, **kwargs)
 
 
 if __name__ == "__main__":
-    # main_adult(dir=f'exps/adult_multi/g_RAC1P_na_10_d_1_n_5000_pd_1_nm0.2_lambda_0.01_T=5000_ns_10_ecOFUL0.01/plots/',
-    #            y_dim=2.7,x_dim=3.0, mult=1.0)
-    main_adult(
-        dir=f"exps/adult_multi/g_RAC1P_na_10_d_1_n_5000_pd_1_nm0.2_lambda_0.01_T=5000_ns_10_ecOFUL0.01/plots/"
-    )
-    # for d in os.listdir("exps/adult_new"):
-    #     main(dir=f'exps/adult_new/{d}/plots/')
-    # main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--plot-path', type=str, default="exps/adult_multi/trial_g_RAC1P_na_20_d_1_n_5000_nm0.2_lambda_0.01_T=2500_ns_10_ecOFUL0.01/plots/", help='Directory containing plots and results.csv')
+    args = parser.parse_args()
+    main_adult(dir=args.plot_path)
