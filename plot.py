@@ -67,6 +67,7 @@ def plot_results(
         Random="Uniform Random",
         OFUL="OFUL",
         FairGreedy="Fair-greedy",
+        FairPrivateGreedy="Fair-private-greedy",
         FairGreedyNoNoise="Fair-greedy no noise",
         FairGreedyKnownCDF="Fair-greedy (Oracle CDF)",
         FairGreedyKnownMuStar="Fair-greedy (Oracle rewards)",
@@ -75,6 +76,7 @@ def plot_results(
         Random="dashed",
         OFUL="dotted",
         FairGreedy="solid",
+        FairPrivateGreedy="solid",
         Greedy="dashdot",
         FairGreedyKnownCDF="dashed",
         FairGreedyKnownMuStar="dashed",
@@ -218,6 +220,7 @@ def main_adult(dir="", mult=1.2, x_dim=4, y_dim=3.5):
         "Random",
         "OFUL",
         "FairGreedy",
+        "FairPrivateGreedy",
         "Greedy",
         # 'FairGreedyKnownCDF', 'FairGreedyKnownMuStar'
     ]

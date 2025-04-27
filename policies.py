@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import scipy
+from functools import partial
 
 
 class FairBanditProblem:
@@ -156,9 +158,101 @@ class FairGreedy(RidgePolicy):
         self.t += 1
         if self.t < 3:
             return np.random.randint(low=0, high=(n_arms - 1))
+        
         mu_hat = self.online_ridge.theta + (
-            self.mu_noise_level / np.sqrt(self.d * self.t)
+            self.mu_noise_level / (self.d * np.sqrt(self.t))
         ) * np.random.randn(self.d)
+
+        # Compute ECDF
+        X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
+        rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
+        rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
+        indic = (rewards <= rs).astype(float)
+        ecdfs = np.mean(indic, axis=0)
+
+        # Select Arm
+        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        return np.random.choice(arg_max)
+
+    def update_history(self, X, r, a):
+        t0_new = np.floor((self.t - 1) / 2)
+        if self.t0 != t0_new:
+            self.online_ridge.update(
+                self.ecdf_contexts[0][self.actions[0]], self.rewards[0]
+            )
+            self.ecdf_contexts, self.actions, self.rewards = (
+                self.ecdf_contexts[1:],
+                self.actions[1:],
+                self.rewards[1:],
+            )
+        self.ecdf_contexts.append(X)
+        self.actions.append(a)
+        self.rewards.append(r)
+
+        self.t0 = t0_new
+
+
+class FairPrivateGreedy(RidgePolicy):
+    def __init__(self, reg_param, d, mu_noise_level):
+        super().__init__(reg_param, d)
+        self.mu_noise_level = mu_noise_level
+        self.t = 0
+        self.t0 = 0
+        self.ecdf_contexts = []
+        self.actions = []
+        self.rewards = []
+
+    ###
+    def objfun(self, beta, vector_M, M_dims):
+        M = vector_M.reshape(M_dims)
+        return beta.transpose() @ M @ beta
+    
+    def constraint(self, beta, d):
+        return beta[d-1] + 1
+
+    ###
+    # Bound B for context vectors and rewards
+    # Assert d < r
+    def ridge_privacy(self, X, reward, B, epsilon_not, delta_not, r):
+        w = np.sqrt((4 * (B**2) * (np.sqrt(2 * r * np.log(4 / delta_not)) + np.log(4 / delta_not))) / epsilon_not)
+
+        # A = np.concatenate((X, reward), axis=0)
+        A = X
+
+        d = A.shape[1]
+        w_I = w * np.identity(d)
+        A_prime = np.concatenate((A, w_I), axis=0)
+
+        n = len(A[:, 0])
+        R = np.random.randn(r, n + d)
+        
+        M = (1 / r) * (R @ A_prime).transpose() @ (R @ A_prime)
+
+        constraint_f = partial(self.constraint, d=d)
+
+        vector_M = M.flatten()
+        M_dims = (d, d)
+        constraints = {'type': 'eq', 'fun': constraint_f}
+        beta_not = np.zeros(d)
+
+        privateRR = scipy.optimize.minimize(self.objfun, beta_not, args=(vector_M, M_dims), constraints=constraints)
+        beta_result = privateRR.x
+        return M, beta_result
+
+    def select_arm(self, X):
+        n_arms = len(X[:, 0])
+        self.t += 1
+        if self.t < 3:
+            return np.random.randint(low=0, high=(n_arms - 1))
+        
+        # mu_hat = self.online_ridge.theta + (
+        #     self.mu_noise_level / (self.d * np.sqrt(self.t))
+        # ) * np.random.randn(self.d)
+        epsilon_not = 10
+        delta_not = 10**(-9)
+        B = 100
+        r = self.d + 10
+        mu_hat = self.ridge_privacy(X, self.rewards, B, epsilon_not, delta_not, r)[1]
 
         # Compute ECDF
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])

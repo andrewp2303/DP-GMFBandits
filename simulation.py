@@ -89,9 +89,10 @@ def run(
     )
 
     policies_generators = [
-        lambda: Random(),
-        lambda: OFUL(reg_param, P.d),
-        lambda: FairGreedy(reg_param, P.d, mu_noise_level),
+        # lambda: Random(),
+        # lambda: OFUL(reg_param, P.d),
+        # lambda: FairGreedy(reg_param, P.d, mu_noise_level),
+        lambda: FairPrivateGreedy(reg_param, P.d, mu_noise_level),
         # lambda: Greedy(reg_param, P.d),
         # lambda: FairOFUL(reg_param, P.d),
         # lambda: FairGreedyKnownCDF(reg_param, P.d, mu_noise_level, P),
