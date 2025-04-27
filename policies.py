@@ -72,6 +72,149 @@ class OnlineRidge:
         return np.dot(X, self.theta)
 
 
+class BinaryMechanism:
+    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_param):
+        self.epsilon = epsilon
+        self.delta = delta
+        self.T = T
+        self.L_tilde = L_tilde
+        self.d = d
+        self.shape = (d + 1, d + 1)
+        self.alpha_param = alpha_param
+        self.logT = int(np.ceil(np.log2(T)))
+        self.m = self.logT + 1
+
+        self.noise = None
+
+        self.alpha = [np.zeros(self.shape) for _ in range(self.m)]
+        self.alpha_noisy = [np.zeros(self.shape) for _ in range(self.m)]
+
+        self.current_time = 0
+
+    def _wishart_noise(self):
+        self.k = int(
+            self.d
+            + 1
+            + np.ceil(
+                224
+                * self.m
+                * np.power(self.epsilon, -2)
+                * np.log(8 * self.m / self.delta)
+                * np.log(2 / self.delta)
+            )
+        )
+        self.cov_matrix = self.L_tilde**2 * np.eye(self.shape[0])
+        self.shift = (
+            self.L_tilde**2
+            * (
+                np.sqrt(self.m * self.k)
+                - np.sqrt(self.d)
+                - np.sqrt(2 * np.log(8 * self.T / self.alpha_param))
+            )
+            ** 2
+        ) - (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m * self.k)
+            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_param)))
+        )
+        samples = np.random.multivariate_normal(
+            mean=np.zeros(self.shape[0]), cov=self.cov_matrix, size=self.k
+        )
+        wishart_matrix = samples.T @ samples
+        return wishart_matrix
+
+    def _shifted_wishart_noise(self):
+        return self._wishart_noise() - self.shift * np.eye(self.shape[0])
+
+    def _gaussian_noise(self):
+        sigma_noise = (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m)
+            * np.log(4 / self.delta)
+            / self.epsilon
+        )
+        gamma = (
+            np.sqrt(32)
+            * self.m
+            * self.L_tilde**2
+            * np.log(4 / self.delta)
+            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_param))
+            / self.epsilon
+        )
+        noise = np.random.normal(0, sigma_noise, self.shape)
+        return noise + 2 * gamma * np.eye(self.shape[0])
+
+    def define_noise(self, noise_type="gaussian"):
+        if noise_type == "gaussian":
+            self.noise = self._gaussian_noise
+        elif noise_type == "wishart":
+            self.noise = self._wishart_noise
+        elif noise_type == "shifted_wishart":
+            self.noise = self._shifted_wishart_noise
+        else:
+            raise ValueError("Invalid noise type. Choose 'gaussian' or 'wishart'.")
+
+    def update_sum(self, new_value):
+        self.current_time += 1
+        t = self.current_time
+        if t > self.T:
+            raise ValueError("Stream length exceeds the specified T.")
+
+        # Find the least significant 1-bit in binary representation of t
+        i = 0
+        while (t >> i) & 1 == 0:
+            i += 1
+
+        # Aggregate values for the new p-sum
+        sum_alpha = new_value
+        for j in range(i):
+            sum_alpha += self.alpha[j]
+            self.alpha[j] = np.zeros(self.shape)
+            self.alpha_noisy[j] = np.zeros(self.shape)
+
+        # Update alpha[i]
+        self.alpha[i] = sum_alpha
+        noise = self.noise()
+        self.alpha_noisy[i] = self.alpha[i] + noise
+
+        # Output the sum of active noisy p-sums
+        estimate = np.zeros(self.shape)
+        for j in range(self.logT + 1):
+            if (t >> j) & 1:
+                estimate += self.alpha_noisy[j]
+
+        return estimate
+
+
+class OnlinePrivate:
+    def __init__(self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type):
+        self.private_mechanism = BinaryMechanism(
+            epsilon=epsilon,
+            delta=delta,
+            d=d,
+            T=T,
+            L_tilde=L_tilde,
+            alpha_param=alpha_param,
+        )
+        self.private_mechanism.define_noise(noise_type)
+        self.theta = np.zeros(d)
+        self.updates_count = 0
+
+    def update(self, X, y):
+        self.updates_count += 1
+        xtx = np.outer(X, X)
+        M = self.private_mechanism.update_sum(xtx)
+        XTX = M[:-1, :-1]
+        XTy = M[:-1, -1]
+        XTXinv = np.linalg.inv(XTX)
+        self.theta = XTXinv @ XTy
+
+    def predict(self, X):
+        return np.dot(X, self.theta)
+
+
 class Policy:
     def select_arm(self, X):
         raise NotImplementedError
