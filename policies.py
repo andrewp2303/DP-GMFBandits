@@ -136,14 +136,12 @@ class BinaryMechanism:
             / self.epsilon
         )
         gamma = (
-            np.sqrt(32)
-            * self.m
-            * self.L_tilde**2
-            * np.log(4 / self.delta)
+            sigma_noise
+            * np.sqrt(2 * self.m)
             * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_param))
-            / self.epsilon
         )
         noise = np.random.normal(0, sigma_noise, self.shape)
+        noise = (noise + noise.T) / np.sqrt(2)
         return noise + 2 * gamma * np.eye(self.shape[0])
 
     def define_noise(self, noise_type="gaussian"):
@@ -184,12 +182,16 @@ class BinaryMechanism:
         for j in range(self.logT + 1):
             if (t >> j) & 1:
                 estimate += self.alpha_noisy[j]
+                # estimate += self.alpha[j]
 
         return estimate
+        # return estimate + np.eye(self.shape[0]) * 0.01
 
 
 class OnlinePrivate:
-    def __init__(self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type):
+    def __init__(
+        self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param
+    ):
         self.private_mechanism = BinaryMechanism(
             epsilon=epsilon,
             delta=delta,
@@ -201,15 +203,19 @@ class OnlinePrivate:
         self.private_mechanism.define_noise(noise_type)
         self.theta = np.zeros(d)
         self.updates_count = 0
+        self.XTX = reg_param * np.eye(d)
+        self.XTXinv = np.eye(d) / reg_param  # Start with identity matrix for inversion
+        self.XTy = np.zeros(d)
 
     def update(self, X, y):
         self.updates_count += 1
-        xtx = np.outer(X, X)
-        M = self.private_mechanism.update_sum(xtx)
-        XTX = M[:-1, :-1]
-        XTy = M[:-1, -1]
-        XTXinv = np.linalg.inv(XTX)
-        self.theta = XTXinv @ XTy
+        xy = np.concatenate((X, np.array([y])))
+        ata = np.outer(xy, xy)
+        M = self.private_mechanism.update_sum(ata)
+        self.XTX = M[:-1, :-1]
+        self.XTy = M[:-1, -1]
+        self.XTXinv = np.linalg.inv(self.XTX)
+        self.theta = self.XTXinv @ self.XTy
 
     def predict(self, X):
         return np.dot(X, self.theta)
