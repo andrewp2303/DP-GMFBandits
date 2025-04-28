@@ -70,6 +70,7 @@ def plot_results(
         FairGreedyNoNoise="Fair-greedy no noise",
         FairGreedyKnownCDF="Fair-greedy (Oracle CDF)",
         FairGreedyKnownMuStar="Fair-greedy (Oracle rewards)",
+        DPFairGreedyPP="DP Fair-greedy (PP)",
     ),
     line_style_dict=dict(
         Random="dashed",
@@ -78,6 +79,7 @@ def plot_results(
         Greedy="dashdot",
         FairGreedyKnownCDF="dashed",
         FairGreedyKnownMuStar="dashed",
+        DPFairGreedyPP="dashed",
     ),
     save_fig=True,
     dir="",
@@ -215,11 +217,12 @@ def plot_results(
 
 def main_adult(dir="", mult=1.2, x_dim=4, y_dim=3.5):
     selected = [
-        "Random",
+        # "Random",
         "OFUL",
         "FairGreedy",
         "Greedy",
-        # 'FairGreedyKnownCDF', 'FairGreedyKnownMuStar'
+        # 'FairGreedyKnownCDF', 'FairGreedyKnownMuStar',
+        "DPFairGreedyPP"
     ]
     y_lim_dict = dict(pseudo_regret=[-1, 120], pseudo_fair_regret=[-1, 60])
     x_lim_dict = dict(pseudo_regret=[-5, 2500], pseudo_fair_regret=[-5, 2500])

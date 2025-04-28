@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.special import legendre
+from sklearn.isotonic import IsotonicRegression
 
 
 class FairBanditProblem:
@@ -75,6 +77,35 @@ class OnlineRidge:
     def predict(self, X):
         return np.dot(X, self.theta)
 
+# TODO: implement DPOnlineRidge
+class DPOnlineRidge:
+    def __init__(self, reg_param, d):
+        self.reg_param = reg_param
+        # self.X = []
+        # self.y = []
+        self.Ireg = np.eye(d) * reg_param
+        self.XTX = reg_param * np.eye(d)
+        self.XTXinv = np.eye(d) / reg_param
+        self.XTy = np.zeros(d)
+        self.theta = np.zeros(d)
+        self.updates_count = 0
+        self.beta = 0
+
+    def update(self, X, y):
+        self.updates_count += 1
+        coeff = 1 + np.dot(X, self.XTXinv @ X)
+        xtx = np.outer(X, X)
+        self.XTX = self.XTX + xtx
+        self.XTXinv -= (self.XTXinv @ xtx @ self.XTXinv) / coeff
+        self.XTy += y * X
+        self.beta = np.sqrt(
+            2 * np.log(np.linalg.det(self.XTX) / np.linalg.det(self.Ireg))
+        )
+
+        self.theta = self.XTXinv @ self.XTy
+
+    def predict(self, X):
+        return np.dot(X, self.theta)
 
 class Policy:
     def select_arm(self, X, s):
@@ -88,6 +119,16 @@ class Policy:
 
 
 class RidgePolicy(Policy, ABC):
+    def __init__(self, reg_param, d):
+        self.online_ridge = OnlineRidge(reg_param, d)
+        self.reg_param = reg_param
+        self.d = d
+
+    def get_mu_estimate(self):
+        return self.online_ridge.theta
+
+# TODO: implement DP ridge policy
+class DPRidgePolicy(Policy, ABC):
     def __init__(self, reg_param, d):
         self.online_ridge = OnlineRidge(reg_param, d)
         self.reg_param = reg_param
@@ -171,8 +212,11 @@ class FairGreedy(RidgePolicy):
         rewards = np.zeros(n_arms)
         ecdfs = np.zeros(n_arms)
         for i in range(n_arms):
+            # These are the historical rewards for this arm (based on update_history)
             rewards = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu_hat)
+            # This is the reward for this arm (based on get_mu_estimate)
             rs = np.dot(X[i], mu_hat)
+            # This is the ECDF for this arm
             indic = (rewards <= rs).astype(float)
             if indic.size == 0:
                 ecdfs[i] = np.nan  # No data for this group yet
@@ -208,70 +252,25 @@ class FairGreedy(RidgePolicy):
 
         self.t0 = t0_new
 
-
-class FairGreedyKnownCDF(RidgePolicy):
-    def __init__(self, reg_param, d, noise_magnitude, P: FairBanditProblem):
+def DPFairGreedyPP(DPRidgePolicy):
+    def __init__(self, reg_param, d, mu_noise_level, epsilon_total, T, K=6, delta_total=None):
         super().__init__(reg_param, d)
-        self.P = P
-        self.noise_magnitude = noise_magnitude
+        self.mu_noise_level = mu_noise_level
+        self.epsilon_total = epsilon_total
+        self.T = T
+        self.epsilon_per_round = epsilon_total / float(T)
+        self.delta_total = delta_total if delta_total is not None else T**(-1.5)  # fallback default
+        self.delta_per_round = self.delta_total / float(T)
+        self.K = K  # number of Legendre polynomials
 
-    def select_arm(self, X, s):
-        t = self.online_ridge.updates_count + 1
-        mu_hat = self.online_ridge.theta + (
-            self.noise_magnitude / np.sqrt(t)
-        ) * np.random.randn(self.d)
-        rs = np.einsum("jk,k->j", X, mu_hat)
-        est_cdfs = self.P.get_cdfs_estimate(rs, s)
-        arg_max = np.argwhere(est_cdfs == np.max(est_cdfs))[0, :]
-        return np.random.choice(arg_max)
-        # return np.random.randint(low=0, high=n_arms)
-
-    def update_history(self, X, r, a, s):
-        self.online_ridge.update(X[a], r)
-
-
-class FairGreedyKnownMuStar(OraclePolicy):
-    def __init__(self, P: FairBanditProblem):
-        super().__init__(P)
         self.t = 0
-        self.rewards = None
-        self.groups = None
+        self.t0 = 0
+        self.ecdf_groups = []
+        self.ecdf_contexts = []
+        self.actions = []
+        self.rewards = []
 
-    def select_arm(self, X, s):
-        n_arms = len(X[:, 0])
-        self.t += 1
-        if self.t < 2:
-            return np.random.randint(low=0, high=(n_arms - 1))
-
-        # Compute ECDF
-        ecdfs = np.zeros(n_arms)
-        for i in range(n_arms):
-            rs = np.dot(X[i], self.P.mu_star)
-            indic = (self.rewards[self.groups == s[i]] <= rs).astype(float)
-            ecdfs[i] = np.mean(indic, axis=0)
-
-        nan = np.isnan(ecdfs)
-        if any(nan):
-            ecdfs[nan] = np.random.rand(sum(nan))
-
-        # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
-        return np.random.choice(arg_max)
-
-    def update_history(self, X, r, a, s):
-        rs = np.einsum("jk,k->j", X, self.P.mu_star)
-        if self.rewards is None:
-            self.rewards = rs
-            self.groups = s
-
-        self.rewards = np.concatenate((self.rewards, np.array(rs)))
-        self.groups = np.concatenate((self.groups, np.array(s)))
-
-
-class FairGreedyNoNoise(FairGreedy):
-    def __init__(self, reg_param, d):
-        super().__init__(reg_param, d, mu_noise_level=0)
-
+        
 
 class OFUL(RidgePolicy):
     def __init__(self, reg_param, d, expl_coeff=1.0):

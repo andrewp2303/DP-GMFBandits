@@ -63,6 +63,7 @@ def run(
     plot_mult=0.8,
     exp_dir="exps/adult_multigroup/simple/",
     plot_flag=False,
+    epsilon_total=10000,
 ):
     from pathlib import Path
 
@@ -102,7 +103,8 @@ def run(
     )
 
     policies_generators = [
-        lambda: Random(),
+        # lambda: Random(),
+        lambda: DPFairGreedyPP(reg_param, P.d, mu_noise_level, epsilon_total, T),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
         lambda: FairGreedy(reg_param, P.d, mu_noise_level),
         lambda: Greedy(reg_param, P.d),
@@ -167,4 +169,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
     for n_arms in (20,):
         for n_samples_per_group in (5000,):
-            main(n_arms=n_arms, n_samples_per_group=n_samples_per_group, n_seeds=10, plot_flag=args.plot)
+            main(n_arms=n_arms, n_samples_per_group=n_samples_per_group, n_seeds=10, plot_flag=args.plot, T=1000)
