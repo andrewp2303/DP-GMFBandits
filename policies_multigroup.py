@@ -4,6 +4,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import scipy
+from functools import partial
 
 
 class FairBanditProblem:
@@ -161,9 +163,119 @@ class FairGreedy(RidgePolicy):
         self.t += 1
         if self.t < 3:
             return np.random.randint(low=0, high=(n_arms - 1))
+        
+        # mu_hat = self.online_ridge.theta + (
+        #     self.mu_noise_level / np.sqrt(self.d * self.t)
+        # ) * np.random.randn(self.d)
         mu_hat = self.online_ridge.theta + (
-            self.mu_noise_level / np.sqrt(self.d * self.t)
+            self.mu_noise_level / (self.d * np.sqrt(self.t))
         ) * np.random.randn(self.d)
+
+        # Compute ECDF
+        X_hist = np.concatenate([c[None, :] for c in self.ecdf_contexts])
+        s_hist = np.array(self.ecdf_groups)
+        rewards = np.zeros(n_arms)
+        ecdfs = np.zeros(n_arms)
+        for i in range(n_arms):
+            rewards = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu_hat)
+            rs = np.dot(X[i], mu_hat)
+            indic = (rewards <= rs).astype(float)
+            if indic.size == 0:
+                ecdfs[i] = np.nan  # No data for this group yet
+            else:
+                ecdfs[i] = np.mean(indic)
+
+        nan = np.isnan(ecdfs)
+        if any(nan):
+            ecdfs[nan] = np.random.rand(sum(nan))
+
+        # Select Arm
+        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        return np.random.choice(arg_max)
+
+    def update_history(self, X, r, a, s):
+        n_arms = len(X[:, 0])
+        t0_new = np.floor((self.t - 1) / 2)
+        if self.t0 != t0_new:
+            self.online_ridge.update(
+                self.ecdf_contexts[self.actions[0]], self.rewards[0]
+            )
+            self.ecdf_contexts, self.actions, self.rewards = (
+                self.ecdf_contexts[n_arms:],
+                self.actions[1:],
+                self.rewards[1:],
+            )
+            self.ecdf_groups = self.ecdf_groups[n_arms:]
+        for i in range(n_arms):
+            self.ecdf_contexts.append(X[i])
+            self.ecdf_groups.append(s[i])
+        self.actions.append(a)
+        self.rewards.append(r)
+
+        self.t0 = t0_new
+
+
+class FairPrivateGreedy(RidgePolicy):
+    def __init__(self, reg_param, d, mu_noise_level):
+        super().__init__(reg_param, d)
+        self.mu_noise_level = mu_noise_level
+        self.t = 0
+        self.t0 = 0
+        self.ecdf_groups = []
+        self.ecdf_contexts = []
+        self.actions = []
+        self.rewards = []
+
+    ###
+    def objfun(self, beta, vector_M, M_dims):
+        M = vector_M.reshape(M_dims)
+        return beta.transpose() @ M @ beta
+    
+    def constraint(self, beta, d):
+        return beta[d-1] + 1
+
+    ###
+    # Bound B for context vectors and rewards
+    # Assert d < r
+    def ridge_privacy(self, X, reward, B, epsilon_not, delta_not, r_val):
+        w = np.sqrt((4 * (B**2) * (np.sqrt(2 * r_val * np.log(4 / delta_not)) + np.log(4 / delta_not))) / epsilon_not)
+
+        reward = np.array(reward)[:, np.newaxis]
+        A = np.concatenate((X, reward), axis=1)
+
+        d = A.shape[1]
+        w_I = w * np.identity(d)
+        A_prime = np.concatenate((A, w_I), axis=0)
+
+        n = len(A[:, 0])
+        R = np.random.randn(r_val, n + d)
+        
+        M = (1 / r_val) * (R @ A_prime).transpose() @ (R @ A_prime)
+
+        constraint_f = partial(self.constraint, d=d)
+
+        vector_M = M.flatten()
+        M_dims = (d, d)
+        constraints = {'type': 'eq', 'fun': constraint_f}
+        beta_not = np.zeros(d)
+
+        privateRR = scipy.optimize.minimize(self.objfun, beta_not, args=(vector_M, M_dims), constraints=constraints)
+        beta_result = privateRR.x
+        return M, beta_result
+    
+    def select_arm(self, X, s):
+        n_arms = len(X[:, 0])
+        self.t += 1
+        if self.t < 3:
+            return np.random.randint(low=0, high=(n_arms - 1))
+        
+        epsilon_not = 0.1
+        delta_not = 10**(-9)
+        B = 100
+        r_val = self.d + 10
+        context_matrix = [self.ecdf_contexts[i:i+n_arms] for i in range(0, np.array(self.ecdf_contexts).shape[0], n_arms)]
+        chosen_vectors = np.array([context_matrix[i][action] for i, action in enumerate(self.actions)])
+        mu_hat = self.ridge_privacy(chosen_vectors, self.rewards, B, epsilon_not, delta_not, r_val)[1][:-1]
 
         # Compute ECDF
         X_hist = np.concatenate([c[None, :] for c in self.ecdf_contexts])

@@ -213,20 +213,22 @@ class FairPrivateGreedy(RidgePolicy):
     ###
     # Bound B for context vectors and rewards
     # Assert d < r
-    def ridge_privacy(self, X, reward, B, epsilon_not, delta_not, r):
-        w = np.sqrt((4 * (B**2) * (np.sqrt(2 * r * np.log(4 / delta_not)) + np.log(4 / delta_not))) / epsilon_not)
+    def ridge_privacy(self, X, reward, B, epsilon_not, delta_not, r_val):
+        w = np.sqrt((4 * (B**2) * (np.sqrt(2 * r_val * np.log(4 / delta_not)) + np.log(4 / delta_not))) / epsilon_not)
 
-        # A = np.concatenate((X, reward), axis=0)
-        A = X
+        reward = np.array(reward)[:, np.newaxis]
+        print(X)
+        print(reward)
+        A = np.concatenate((X, reward), axis=1)
 
         d = A.shape[1]
         w_I = w * np.identity(d)
         A_prime = np.concatenate((A, w_I), axis=0)
 
         n = len(A[:, 0])
-        R = np.random.randn(r, n + d)
+        R = np.random.randn(r_val, n + d)
         
-        M = (1 / r) * (R @ A_prime).transpose() @ (R @ A_prime)
+        M = (1 / r_val) * (R @ A_prime).transpose() @ (R @ A_prime)
 
         constraint_f = partial(self.constraint, d=d)
 
@@ -245,14 +247,12 @@ class FairPrivateGreedy(RidgePolicy):
         if self.t < 3:
             return np.random.randint(low=0, high=(n_arms - 1))
         
-        # mu_hat = self.online_ridge.theta + (
-        #     self.mu_noise_level / (self.d * np.sqrt(self.t))
-        # ) * np.random.randn(self.d)
-        epsilon_not = 10
+        epsilon_not = 0.1
         delta_not = 10**(-9)
         B = 100
-        r = self.d + 10
-        mu_hat = self.ridge_privacy(X, self.rewards, B, epsilon_not, delta_not, r)[1]
+        r_val = self.d + 10
+        chosen_vectors = np.array([np.array(self.ecdf_contexts)[i, action] for i, action in enumerate(self.actions)])
+        mu_hat = self.ridge_privacy(chosen_vectors, self.rewards, B, epsilon_not, delta_not, r_val)[1][:-1]
 
         # Compute ECDF
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
