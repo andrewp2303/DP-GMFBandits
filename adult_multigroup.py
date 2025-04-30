@@ -3,7 +3,9 @@ from data_multigroup import *
 from plot import *
 from policies_multigroup import *
 import warnings
+
 warnings.filterwarnings("error", category=RuntimeWarning)
+
 
 def main(
     exp_prefix="trial_",
@@ -42,7 +44,9 @@ def main(
         T=T,
         compute_density=True,
         plot_flag=plot_flag,
-        epsilon=0.1,
+        epsilon=1,
+        delta=1,
+        L_tilde=140,
         noise_type="gaussian",
     )
     if plot_flag:
@@ -63,15 +67,14 @@ def run(
     # algo parameters
     reg_param=0.1,
     expl_coeff_oful=0.1,
-    T=500,  # total number of rounds
-    # T = 5000,
+    T=5000,  # total number of rounds
     algo_seeds=tuple(range(10)),
     plot_mult=0.8,
     exp_dir="exps/adult_multigroup/simple/",
     plot_flag=False,
     epsilon=0.1,
     delta=1e-5,
-    L_tilde=1,          # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data_multigroup.py
+    L_tilde=1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data_multigroup.py
     alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     noise_type="gaussian",
 ):
@@ -118,14 +121,16 @@ def run(
     policies_generators = [
         # lambda: Random(),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
-        lambda: PrivateFairGreedy(T=T, 
-                                epsilon=epsilon, 
-                                delta=delta, 
-                                L_tilde=L_tilde, 
-                                alpha_param=alpha_param, 
-                                noise_type=noise_type, 
-                                reg_param=reg_param, 
-                                d=P.d),
+        lambda: PrivateFairGreedy(
+            T=T,
+            epsilon=epsilon,
+            delta=delta,
+            L_tilde=L_tilde,
+            alpha_param=alpha_param,
+            noise_type=noise_type,
+            reg_param=reg_param,
+            d=P.d,
+        ),
         lambda: FairGreedy(reg_param, P.d, mu_noise_level),
         # lambda: Greedy(reg_param, P.d),
         # lambda: FairGreedyKnownCDF(reg_param, P.d, mu_noise_level, P),
@@ -177,30 +182,33 @@ def run(
         total_dfs.extend(dfs)
 
     result_df = pd.concat(total_dfs)
-    
-    # Print start time for CSV writing   
-    print(f"Writing {len(result_df)} rows to CSV using pandas...") 
+
+    # Print start time for CSV writing
+    print(f"Writing {len(result_df)} rows to CSV using pandas...")
     result_df.to_csv(f"{exp_dir}results.csv")
     print(f"results.csv saved to {exp_dir}")
 
     return exp_dir
 
 
-
 # NOTE: THIS IS WHERE EXPERIMENTS START
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--plot', action='store_true', help='Enable plotting (default: disabled)')
+    parser.add_argument(
+        "--plot", action="store_true", help="Enable plotting (default: disabled)"
+    )
     args = parser.parse_args()
     for n_arms in (2,):
         for n_samples_per_group in (5000,):
-            main(n_arms=n_arms, 
-                n_samples_per_group=n_samples_per_group, 
-                n_seeds=2, 
+            main(
+                n_arms=n_arms,
+                n_samples_per_group=n_samples_per_group,
+                n_seeds=5,
                 plot_flag=args.plot,
                 T=10000,
                 epsilon=10000,
                 delta=10,
-                L_tilde=0.0001,        # for test purposes - this is max row norm of X+Y
-                )
+                L_tilde=0.0001,  # for test purposes - this is max row norm of X+Y
+            )

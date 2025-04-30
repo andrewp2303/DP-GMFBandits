@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 # NOTE: ALL DP MODIFICATIONS ARE AT BOTTOM
 
+
 class FairBanditProblem:
     def __init__(self, mu_star, n_arms, n_groups, true_rewards):
         self.mu_star = mu_star
@@ -518,17 +519,20 @@ class OnlinePrivate:
     def predict(self, X):
         return np.dot(X, self.theta)
 
+
 class PrivateRidgePolicy(Policy, ABC):
-    def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
+    def __init__(
+        self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+    ):
         self.online_ridge = OnlinePrivate(
-                                            T=T,
-                                            epsilon=epsilon,
-                                            delta=delta,
-                                            L_tilde=L_tilde,
-                                            alpha_param=alpha_param,
-                                            noise_type=noise_type,
-                                            reg_param=reg_param,
-                                            d=d,
+            T=T / 2,  # We do
+            epsilon=epsilon,
+            delta=delta,
+            L_tilde=L_tilde,
+            alpha_param=alpha_param,
+            noise_type=noise_type,
+            reg_param=reg_param,
+            d=d,
         )
         self.reg_param = reg_param
         self.d = d
@@ -536,12 +540,22 @@ class PrivateRidgePolicy(Policy, ABC):
     def get_mu_estimate(self):
         return self.online_ridge.theta
 
+
 class PrivateFairGreedy(PrivateRidgePolicy):
+<<<<<<< Updated upstream
     def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
         # TODO: determine a non-naive epsilon split
         eps_regression = epsilon / 2
         eps_ecdf = epsilon - eps_regression
         super().__init__(T, epsilon=eps_regression, delta=delta, L_tilde=L_tilde, alpha_param=alpha_param, noise_type=noise_type, reg_param=reg_param, d=d)
+=======
+    def __init__(
+        self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+    ):
+        super().__init__(
+            T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+        )
+>>>>>>> Stashed changes
         self.t = 0
         self.t0 = 0
         self.ecdf_groups = []
