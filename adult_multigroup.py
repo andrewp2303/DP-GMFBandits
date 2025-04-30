@@ -44,10 +44,10 @@ def main(
         T=T,
         compute_density=True,
         plot_flag=plot_flag,
-        epsilon=1,
-        delta=1,
-        L_tilde=140,
-        noise_type="gaussian",
+        epsilon=epsilon,
+        delta=delta,
+        L_tilde=L_tilde,
+        noise_type=noise_type,
     )
     if plot_flag:
         plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
@@ -117,7 +117,7 @@ def run(
 
     # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     if alpha_param is None:
-        alpha_param = 1 / T
+        alpha_param = 1
     policies_generators = [
         # lambda: Random(),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
@@ -205,10 +205,10 @@ if __name__ == "__main__":
             main(
                 n_arms=n_arms,
                 n_samples_per_group=n_samples_per_group,
-                n_seeds=5,
+                n_seeds=1,
                 plot_flag=args.plot,
                 T=10000,
-                epsilon=10000,
-                delta=10,
-                L_tilde=0.0001,  # for test purposes - this is max row norm of X+Y
+                epsilon=1,
+                delta=0.1,
+                L_tilde=1,  # for test purposes - this is max row norm of X+Y
             )

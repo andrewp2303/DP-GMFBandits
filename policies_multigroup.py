@@ -439,6 +439,7 @@ class BinaryMechanism:
         noise = np.random.normal(0, sigma_noise, self.shape)
         noise = (noise + noise.T) / np.sqrt(2)
         return noise + 2 * gamma * np.eye(self.shape[0])
+        # return noise
 
     def define_noise(self, noise_type="gaussian"):
         if noise_type == "gaussian":
@@ -449,7 +450,9 @@ class BinaryMechanism:
             self.noise = self._shifted_wishart_noise
         else:
             print(f"Invalid noise type: {noise_type}")
-            raise ValueError("Invalid noise type. Choose 'gaussian' or 'wishart'.")
+            raise ValueError(
+                "Invalid noise type. Choose 'gaussian', 'wishart', or 'shifted_wishart'."
+            )
 
     def update_sum(self, new_value):
         self.current_time += 1
@@ -478,13 +481,13 @@ class BinaryMechanism:
         estimate = np.zeros(self.shape)
         for j in range(self.logT + 1):
             if (t >> j) & 1:
-                # estimate += self.alpha_noisy[j]
+                estimate += self.alpha_noisy[j]
                 # uncomment below for debugging
-                estimate += self.alpha[j]
+                # estimate += self.alpha[j]
 
-        # return estimate
+        return estimate
         # uncomment below for debugging
-        return estimate + np.eye(self.shape[0]) * 0.01
+        # return estimate + np.eye(self.shape[0]) * 0.01
 
 
 class OnlinePrivate:
@@ -525,7 +528,7 @@ class PrivateRidgePolicy(Policy, ABC):
         self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
     ):
         self.online_ridge = OnlinePrivate(
-            T=T / 2,  # We do
+            T=T / 2,  # We only use the first T/2 rounds for regression
             epsilon=epsilon,
             delta=delta,
             L_tilde=L_tilde,
@@ -542,20 +545,12 @@ class PrivateRidgePolicy(Policy, ABC):
 
 
 class PrivateFairGreedy(PrivateRidgePolicy):
-<<<<<<< Updated upstream
-    def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
-        # TODO: determine a non-naive epsilon split
-        eps_regression = epsilon / 2
-        eps_ecdf = epsilon - eps_regression
-        super().__init__(T, epsilon=eps_regression, delta=delta, L_tilde=L_tilde, alpha_param=alpha_param, noise_type=noise_type, reg_param=reg_param, d=d)
-=======
     def __init__(
         self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
     ):
         super().__init__(
             T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
         )
->>>>>>> Stashed changes
         self.t = 0
         self.t0 = 0
         self.ecdf_groups = []
