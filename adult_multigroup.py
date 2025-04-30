@@ -18,6 +18,10 @@ def main(
     expl_coeff_oful=0.01,  # OFUL exploration coefficient. O is equivalent to Greedy.
     plot_mult=1.5,  # higher value gives a larger plot
     plot_flag=False,
+    epsilon=0.1,
+    delta=1e-5,
+    L_tilde=1,
+    noise_type="gaussian",
 ):
 
     exp_dir = (
@@ -38,6 +42,8 @@ def main(
         T=T,
         compute_density=True,
         plot_flag=plot_flag,
+        epsilon=0.1,
+        noise_type="gaussian",
     )
     if plot_flag:
         plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
@@ -63,6 +69,11 @@ def run(
     plot_mult=0.8,
     exp_dir="exps/adult_multigroup/simple/",
     plot_flag=False,
+    epsilon=0.1,
+    delta=1e-5,
+    L_tilde=1,          # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data_multigroup.py
+    alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    noise_type="gaussian",
 ):
     from pathlib import Path
 
@@ -101,11 +112,22 @@ def run(
         plot_flag=plot_flag,
     )
 
+    # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    if alpha_param is None:
+        alpha_param = 1 / T
     policies_generators = [
-        lambda: Random(),
+        # lambda: Random(),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
+        lambda: PrivateFairGreedy(T=T, 
+                                epsilon=epsilon, 
+                                delta=delta, 
+                                L_tilde=L_tilde, 
+                                alpha_param=alpha_param, 
+                                noise_type=noise_type, 
+                                reg_param=reg_param, 
+                                d=P.d),
         lambda: FairGreedy(reg_param, P.d, mu_noise_level),
-        lambda: Greedy(reg_param, P.d),
+        # lambda: Greedy(reg_param, P.d),
         # lambda: FairGreedyKnownCDF(reg_param, P.d, mu_noise_level, P),
         # lambda: FairGreedyKnownMuStar(P)
         # lambda: FairGreedyNoNoise(reg_param, P.d),
@@ -155,16 +177,30 @@ def run(
         total_dfs.extend(dfs)
 
     result_df = pd.concat(total_dfs)
+    
+    # Print start time for CSV writing   
+    print(f"Writing {len(result_df)} rows to CSV using pandas...") 
     result_df.to_csv(f"{exp_dir}results.csv")
+    print(f"CSV saved to {exp_dir}results.csv")
 
     return exp_dir
 
 
+
+# NOTE: THIS IS WHERE EXPERIMENTS START
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--plot', action='store_true', help='Enable plotting (default: disabled)')
     args = parser.parse_args()
-    for n_arms in (20,):
+    for n_arms in (2,):
         for n_samples_per_group in (5000,):
-            main(n_arms=n_arms, n_samples_per_group=n_samples_per_group, n_seeds=10, plot_flag=args.plot)
+            main(n_arms=n_arms, 
+                n_samples_per_group=n_samples_per_group, 
+                n_seeds=5, 
+                plot_flag=args.plot,
+                T=10000,
+                epsilon=10000,
+                delta=10,
+                L_tilde=0.0001,        # for test purposes - this is max row norm of X+Y
+                )

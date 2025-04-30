@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# NOTE: ALL DP MODIFICATIONS ARE AT BOTTOM
 
 class FairBanditProblem:
     def __init__(self, mu_star, n_arms, n_groups, true_rewards):
@@ -364,3 +365,231 @@ def test_policy(
     res["T"] = T
 
     return policy, pd.DataFrame(res)
+
+
+class BinaryMechanism:
+    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_param):
+        self.epsilon = epsilon
+        self.delta = delta
+        self.T = T
+        self.L_tilde = L_tilde
+        self.d = d
+        self.shape = (d + 1, d + 1)
+        self.alpha_param = alpha_param
+        self.logT = int(np.ceil(np.log2(T)))
+        self.m = self.logT + 1
+
+        self.noise = None
+
+        self.alpha = [np.zeros(self.shape) for _ in range(self.m)]
+        self.alpha_noisy = [np.zeros(self.shape) for _ in range(self.m)]
+
+        self.current_time = 0
+
+    def _wishart_noise(self):
+        self.k = int(
+            self.d
+            + 1
+            + np.ceil(
+                224
+                * self.m
+                * np.power(self.epsilon, -2)
+                * np.log(8 * self.m / self.delta)
+                * np.log(2 / self.delta)
+            )
+        )
+        self.cov_matrix = self.L_tilde**2 * np.eye(self.shape[0])
+        self.shift = (
+            self.L_tilde**2
+            * (
+                np.sqrt(self.m * self.k)
+                - np.sqrt(self.d)
+                - np.sqrt(2 * np.log(8 * self.T / self.alpha_param))
+            )
+            ** 2
+        ) - (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m * self.k)
+            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_param)))
+        )
+        samples = np.random.multivariate_normal(
+            mean=np.zeros(self.shape[0]), cov=self.cov_matrix, size=self.k
+        )
+        wishart_matrix = samples.T @ samples
+        return wishart_matrix
+
+    def _shifted_wishart_noise(self):
+        return self._wishart_noise() - self.shift * np.eye(self.shape[0])
+
+    def _gaussian_noise(self):
+        sigma_noise = (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m)
+            * np.log(4 / self.delta)
+            / self.epsilon
+        )
+        gamma = (
+            sigma_noise
+            * np.sqrt(2 * self.m)
+            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_param))
+        )
+        noise = np.random.normal(0, sigma_noise, self.shape)
+        noise = (noise + noise.T) / np.sqrt(2)
+        return noise + 2 * gamma * np.eye(self.shape[0])
+
+    def define_noise(self, noise_type="gaussian"):
+        if noise_type == "gaussian":
+            self.noise = self._gaussian_noise
+        elif noise_type == "wishart":
+            self.noise = self._wishart_noise
+        elif noise_type == "shifted_wishart":
+            self.noise = self._shifted_wishart_noise
+        else:
+            print(f"Invalid noise type: {noise_type}")
+            raise ValueError("Invalid noise type. Choose 'gaussian' or 'wishart'.")
+
+    def update_sum(self, new_value):
+        self.current_time += 1
+        t = self.current_time
+        if t > self.T:
+            raise ValueError("Stream length exceeds the specified T.")
+
+        # Find the least significant 1-bit in binary representation of t
+        i = 0
+        while (t >> i) & 1 == 0:
+            i += 1
+
+        # Aggregate values for the new p-sum
+        sum_alpha = new_value
+        for j in range(i):
+            sum_alpha += self.alpha[j]
+            self.alpha[j] = np.zeros(self.shape)
+            self.alpha_noisy[j] = np.zeros(self.shape)
+
+        # Update alpha[i]
+        self.alpha[i] = sum_alpha
+        noise = self.noise()
+        self.alpha_noisy[i] = self.alpha[i] + noise
+
+        # Output the sum of active noisy p-sums
+        estimate = np.zeros(self.shape)
+        for j in range(self.logT + 1):
+            if (t >> j) & 1:
+                estimate += self.alpha_noisy[j]
+                # estimate += self.alpha[j]
+
+        return estimate
+        # return estimate + np.eye(self.shape[0]) * 0.01
+
+
+class OnlinePrivate:
+    def __init__(
+        self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param
+    ):
+        self.private_mechanism = BinaryMechanism(
+            epsilon=epsilon,
+            delta=delta,
+            d=d,
+            T=T,
+            L_tilde=L_tilde,
+            alpha_param=alpha_param,
+        )
+        self.private_mechanism.define_noise(noise_type)
+        self.theta = np.zeros(d)
+        self.updates_count = 0
+        self.XTX = reg_param * np.eye(d)
+        self.XTXinv = np.eye(d) / reg_param  # Start with identity matrix for inversion
+        self.XTy = np.zeros(d)
+
+    def update(self, X, y):
+        self.updates_count += 1
+        xy = np.concatenate((X, np.array([y])))
+        ata = np.outer(xy, xy)
+        M = self.private_mechanism.update_sum(ata)
+        self.XTX = M[:-1, :-1]
+        self.XTy = M[:-1, -1]
+        self.XTXinv = np.linalg.inv(self.XTX)
+        self.theta = self.XTXinv @ self.XTy
+
+    def predict(self, X):
+        return np.dot(X, self.theta)
+
+class PrivateRidgePolicy(Policy, ABC):
+    def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
+        self.online_ridge = OnlinePrivate(
+                                            T=T,
+                                            epsilon=epsilon,
+                                            delta=delta,
+                                            L_tilde=L_tilde,
+                                            alpha_param=alpha_param,
+                                            noise_type=noise_type,
+                                            reg_param=reg_param,
+                                            d=d,
+        )
+        self.reg_param = reg_param
+        self.d = d
+
+    def get_mu_estimate(self):
+        return self.online_ridge.theta
+
+class PrivateFairGreedy(PrivateRidgePolicy):
+    def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
+        super().__init__(T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d)
+        self.t = 0
+        self.t0 = 0
+        self.ecdf_groups = []
+        self.ecdf_contexts = []
+        self.actions = []
+        self.rewards = []
+
+    def select_arm(self, X, s):
+        n_arms = len(X[:, 0])
+        self.t += 1
+        if self.t < 3:
+            return np.random.randint(low=0, high=(n_arms - 1))
+        mu_hat = self.get_mu_estimate()
+
+        # Compute ECDF
+        X_hist = np.concatenate([c[None, :] for c in self.ecdf_contexts])
+        s_hist = np.array(self.ecdf_groups)
+        rewards = np.zeros(n_arms)
+        ecdfs = np.zeros(n_arms)
+        for i in range(n_arms):
+            rewards = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu_hat)
+            rs = np.dot(X[i], mu_hat)
+            indic = (rewards <= rs).astype(float)
+            if indic.size == 0:
+                ecdfs[i] = np.nan  # No data for this group yet
+            else:
+                ecdfs[i] = np.mean(indic)
+
+        nan = np.isnan(ecdfs)
+        if any(nan):
+            ecdfs[nan] = np.random.rand(sum(nan))
+
+        # Select Arm
+        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        return np.random.choice(arg_max)
+
+    def update_history(self, X, r, a, s):
+        n_arms = len(X[:, 0])
+        t0_new = np.floor((self.t - 1) / 2)
+        if self.t0 != t0_new:
+            self.online_ridge.update(
+                self.ecdf_contexts[self.actions[0]], self.rewards[0]
+            )
+            self.ecdf_contexts, self.actions, self.rewards = (
+                self.ecdf_contexts[n_arms:],
+                self.actions[1:],
+                self.rewards[1:],
+            )
+            self.ecdf_groups = self.ecdf_groups[n_arms:]
+        for i in range(n_arms):
+            self.ecdf_contexts.append(X[i])
+            self.ecdf_groups.append(s[i])
+        self.actions.append(a)
+        self.rewards.append(r)
+
+        self.t0 = t0_new

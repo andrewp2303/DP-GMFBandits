@@ -268,6 +268,49 @@ def preprocess_folktables(
         process_y=lambda i: scaler_y.transform(i.reshape(-1, 1)).reshape(-1),
     )
 
+    # Print feature statistics instead of normalizing
+    print("\n===== FEATURE STATISTICS =====\n")
+    
+    # Get feature names from the ACSIncomeREG problem
+    feature_names = ACSIncomeREG.features
+    
+    # Add a bias term to match the shape of x
+    feature_names = ['bias'] + feature_names
+    
+    # Print statistics for each feature
+    print(f"Total samples: {x.shape[0]}")
+    print(f"Total features: {x.shape[1]}")
+    print("\nFeature statistics:")
+    
+    for i, feature in enumerate(feature_names):
+        if i < x.shape[1]:  # Ensure we don't go out of bounds
+            values = x[:, i]
+            print(f"Feature {i}: {feature}")
+            print(f"  Min: {np.min(values):.6f}")
+            print(f"  Max: {np.max(values):.6f}")
+            print(f"  Mean: {np.mean(values):.6f}")
+            print(f"  Std: {np.std(values):.6f}")
+            print(f"  Median: {np.median(values):.6f}")
+    
+    # Print target (income) statistics
+    print("\nTarget (PINCP) statistics:")
+    print(f"  Min: {np.min(y):.6f}")
+    print(f"  Max: {np.max(y):.6f}")
+    print(f"  Mean: {np.mean(y):.6f}")
+    print(f"  Std: {np.std(y):.6f}")
+    print(f"  Median: {np.median(y):.6f}")
+    
+    # Print max norm information
+    xy_stack = np.hstack([x, y.reshape(-1, 1)])
+    row_norms = np.linalg.norm(xy_stack, axis=1)
+    print(f"\nMax row norm: {np.max(row_norms):.6f}")
+    print(f"Mean row norm: {np.mean(row_norms):.6f}")
+    
+    print("\n===== EXITING EARLY FOR ANALYSIS =====\n")
+    # import sys
+    # sys.exit(0)  # Exit early for analysis
+
+
     # Reward histograms
     y_groups = [y[group == i] for i in selected_groups]
     for i, yg in enumerate(y_groups):

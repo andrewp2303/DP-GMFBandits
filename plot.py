@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import re
 
 
 def set_figsize_dpi(figsize, dpi):
@@ -107,7 +108,13 @@ def plot_results(
         label = policy_dict[p] if p in policy_dict else p
 
         hist_dict[label] = []
-        for seed in range(10):
+        
+        def extract_ns_value(title):
+            match = re.search(r"ns_(\d+)", title)
+            return int(match.group(1)) if match else None
+
+        nseeds = extract_ns_value(dir)
+        for seed in range(nseeds):
             policy_df_0 = policy_df[policy_df["seed"] == seed]
             n_rounds_max = (
                 N_rounds if N_rounds is not None else len(policy_df_0[g_col].values)
@@ -215,14 +222,15 @@ def plot_results(
 
 def main_adult(dir="", mult=1.2, x_dim=4, y_dim=3.5):
     selected = [
-        "Random",
+        # "Random",
         "OFUL",
         "FairGreedy",
-        "Greedy",
+        # "Greedy",
+        "PrivateFairGreedy",
         # 'FairGreedyKnownCDF', 'FairGreedyKnownMuStar'
     ]
-    y_lim_dict = dict(pseudo_regret=[-1, 120], pseudo_fair_regret=[-1, 60])
-    x_lim_dict = dict(pseudo_regret=[-5, 2500], pseudo_fair_regret=[-5, 2500])
+    # y_lim_dict = dict(pseudo_regret=[-1, 100], pseudo_fair_regret=[-1, 100])
+    # x_lim_dict = dict(pseudo_regret=[-5, 2500], pseudo_fair_regret=[-5, 2500])
     prefix_name = "adult_"
     main(
         dir=dir,
@@ -230,9 +238,9 @@ def main_adult(dir="", mult=1.2, x_dim=4, y_dim=3.5):
         dpi=200,
         save_fig=True,
         selected_policies=selected,
-        y_lim_dict=y_lim_dict,
+        # y_lim_dict=y_lim_dict,
         prefix_name=prefix_name,
-        x_lim_dict=x_lim_dict,
+        # x_lim_dict=x_lim_dict,
         x_dim=x_dim,
         y_dim=y_dim,
     )
