@@ -181,7 +181,7 @@ def run(
     # Print start time for CSV writing   
     print(f"Writing {len(result_df)} rows to CSV using pandas...") 
     result_df.to_csv(f"{exp_dir}results.csv")
-    print(f"CSV saved to {exp_dir}results.csv")
+    print(f"results.csv saved to {exp_dir}")
 
     return exp_dir
 
@@ -197,7 +197,7 @@ if __name__ == "__main__":
         for n_samples_per_group in (5000,):
             main(n_arms=n_arms, 
                 n_samples_per_group=n_samples_per_group, 
-                n_seeds=5, 
+                n_seeds=2, 
                 plot_flag=args.plot,
                 T=10000,
                 epsilon=10000,

@@ -477,11 +477,13 @@ class BinaryMechanism:
         estimate = np.zeros(self.shape)
         for j in range(self.logT + 1):
             if (t >> j) & 1:
-                estimate += self.alpha_noisy[j]
-                # estimate += self.alpha[j]
+                # estimate += self.alpha_noisy[j]
+                # uncomment below for debugging
+                estimate += self.alpha[j]
 
-        return estimate
-        # return estimate + np.eye(self.shape[0]) * 0.01
+        # return estimate
+        # uncomment below for debugging
+        return estimate + np.eye(self.shape[0]) * 0.01
 
 
 class OnlinePrivate:
@@ -536,7 +538,10 @@ class PrivateRidgePolicy(Policy, ABC):
 
 class PrivateFairGreedy(PrivateRidgePolicy):
     def __init__(self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d):
-        super().__init__(T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d)
+        # TODO: determine a non-naive epsilon split
+        eps_regression = epsilon / 2
+        eps_ecdf = epsilon - eps_regression
+        super().__init__(T, epsilon=eps_regression, delta=delta, L_tilde=L_tilde, alpha_param=alpha_param, noise_type=noise_type, reg_param=reg_param, d=d)
         self.t = 0
         self.t0 = 0
         self.ecdf_groups = []
