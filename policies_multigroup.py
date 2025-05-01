@@ -22,20 +22,20 @@ class FairBanditProblem:
         raise NotImplementedError
 
     @staticmethod
-    def get_rewards_ecdfs_from_rewards(rewards, rs):
+    def get_rewards_relranks_from_rewards(rewards, rs):
         indic = (rewards <= rs).astype(float)
         return np.mean(indic, axis=0)
 
     def get_context(self):
         raise NotImplementedError
 
-    def get_rewards_ecdfs(self, X_hist, s_hist, X, s, mu):
+    def get_rewards_relranks(self, X_hist, s_hist, X, s, mu):
         rewards = np.zeros(self.n_arms)
         rs = np.zeros(self.n_arms)
         for i in range(self.n_arms):
             rewards[i] = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu)
             rs[i] = np.dot(X[i], mu)
-        return self.get_rewards_ecdfs_from_rewards(rewards, rs)
+        return self.get_rewards_relranks_from_rewards(rewards, rs)
 
     def get_cdfs_estimate(self, rs, s):
         cdfs = np.zeros(self.n_arms)
@@ -44,7 +44,7 @@ class FairBanditProblem:
                 self.true_rewards[:, s[i]], rs[i], side="right"
             ) / len(self.true_rewards[:, s[i]])
 
-        # assert np.equal(cdfs, self.get_rewards_ecdfs_from_rewards(self.true_rewards, rs)).all()
+        # assert np.equal(cdfs, self.get_rewards_relranks_from_rewards(self.true_rewards, rs)).all()
         return cdfs
 
 
@@ -153,8 +153,8 @@ class FairGreedy(RidgePolicy):
         self.mu_noise_level = mu_noise_level
         self.t = 0
         self.t0 = 0
-        self.ecdf_groups = []
-        self.ecdf_contexts = []
+        self.relrank_groups = []
+        self.relrank_contexts = []
         self.actions = []
         self.rewards = []
 
@@ -167,26 +167,26 @@ class FairGreedy(RidgePolicy):
             self.mu_noise_level / np.sqrt(self.d * self.t)
         ) * np.random.randn(self.d)
 
-        # Compute ECDF
-        X_hist = np.concatenate([c[None, :] for c in self.ecdf_contexts])
-        s_hist = np.array(self.ecdf_groups)
+        # Compute Relative Ranks
+        X_hist = np.concatenate([c[None, :] for c in self.relrank_contexts])
+        s_hist = np.array(self.relrank_groups)
         rewards = np.zeros(n_arms)
-        ecdfs = np.zeros(n_arms)
+        relranks = np.zeros(n_arms)
         for i in range(n_arms):
             rewards = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu_hat)
             rs = np.dot(X[i], mu_hat)
             indic = (rewards <= rs).astype(float)
             if indic.size == 0:
-                ecdfs[i] = np.nan  # No data for this group yet
+                relranks[i] = np.nan  # No data for this group yet
             else:
-                ecdfs[i] = np.mean(indic)
+                relranks[i] = np.mean(indic)
 
-        nan = np.isnan(ecdfs)
+        nan = np.isnan(relranks)
         if any(nan):
-            ecdfs[nan] = np.random.rand(sum(nan))
+            relranks[nan] = np.random.rand(sum(nan))
 
         # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        arg_max = np.argwhere(relranks == np.max(relranks))[0, :]
         return np.random.choice(arg_max)
 
     def update_history(self, X, r, a, s):
@@ -194,17 +194,17 @@ class FairGreedy(RidgePolicy):
         t0_new = np.floor((self.t - 1) / 2)
         if self.t0 != t0_new:
             self.online_ridge.update(
-                self.ecdf_contexts[self.actions[0]], self.rewards[0]
+                self.relrank_contexts[self.actions[0]], self.rewards[0]
             )
-            self.ecdf_contexts, self.actions, self.rewards = (
-                self.ecdf_contexts[n_arms:],
+            self.relrank_contexts, self.actions, self.rewards = (
+                self.relrank_contexts[n_arms:],
                 self.actions[1:],
                 self.rewards[1:],
             )
-            self.ecdf_groups = self.ecdf_groups[n_arms:]
+            self.relrank_groups = self.relrank_groups[n_arms:]
         for i in range(n_arms):
-            self.ecdf_contexts.append(X[i])
-            self.ecdf_groups.append(s[i])
+            self.relrank_contexts.append(X[i])
+            self.relrank_groups.append(s[i])
         self.actions.append(a)
         self.rewards.append(r)
 
@@ -245,19 +245,19 @@ class FairGreedyKnownMuStar(OraclePolicy):
         if self.t < 2:
             return np.random.randint(low=0, high=(n_arms - 1))
 
-        # Compute ECDF
-        ecdfs = np.zeros(n_arms)
+        # Compute Relative Ranks
+        relranks = np.zeros(n_arms)
         for i in range(n_arms):
             rs = np.dot(X[i], self.P.mu_star)
             indic = (self.rewards[self.groups == s[i]] <= rs).astype(float)
-            ecdfs[i] = np.mean(indic, axis=0)
+            relranks[i] = np.mean(indic, axis=0)
 
-        nan = np.isnan(ecdfs)
+        nan = np.isnan(relranks)
         if any(nan):
-            ecdfs[nan] = np.random.rand(sum(nan))
+            relranks[nan] = np.random.rand(sum(nan))
 
         # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        arg_max = np.argwhere(relranks == np.max(relranks))[0, :]
         return np.random.choice(arg_max)
 
     def update_history(self, X, r, a, s):
@@ -548,32 +548,36 @@ class PrivateFairGreedy(PrivateRidgePolicy):
     def __init__(
         self, T, epsilon, delta, delta_tilde, L_tilde, alpha_param, noise_type, reg_param, d, n_arms
     ):
-        # TODO: determine a non-naive epsilon split
+        # TODO: determine a non-naive epsilon split across regression and relative ranks
         self.T = T
         self.n_arms = n_arms
         self.eps_regression = epsilon / 2
-        self.eps_ecdf = epsilon - self.eps_regression
+        self.eps_relrank = epsilon - self.eps_regression
         self.delta_tilde = delta_tilde
         self.delta = delta
         self.delta_regression = self.delta / 2
-        self.delta_ecdf = self.delta - self.delta_tilde - self.delta_regression 
-        if self.delta_ecdf < 0:
-            raise ValueError("Delta for ECDF is negative, make sure delta_tilde is small enough")
+        self.delta_relrank = self.delta - self.delta_tilde - self.delta_regression 
+        if self.delta_relrank < 0:
+            raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
 
         # n_releases = number of rounds (T) * number of arms per round (n_arms)
         n_releases = self.T * self.n_arms
-        # Per-round epsilon ε bounded by ε < ε' / sqrt(2 * n_releases * ln(1/δ')) by advanced composition (DRV10)
-        self.eps_ecdf_round = self.eps_ecdf / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
-        # Per-round delta δ bounded by δ < (δ' - δ~) / n_releases by advanced composition (DRV10)
-        self.delta_ecdf_round = self.delta_ecdf / n_releases
+        # Per-release (per-arm) epsilon ε bounded by ε < ε_relrank / sqrt(2 * n_releases * ln(1/δ̃)) by advanced composition (DRV10)
+        self.eps_relrank_release = self.eps_relrank / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
+        # Per-release (per-arm) delta δ bounded by δ < (δ_relrank - δ̃) / n_releases by advanced composition (DRV10)
+        self.delta_relrank_release = self.delta_relrank / n_releases
+
+        # Assert that total epsilon actually being used is within bounds, according to DRV10
+        if self.eps_relrank_release * np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde)) > self.eps_relrank:
+            raise ValueError("Total epsilon for Relative Ranks is too large")
         
         super().__init__(
             T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
         )
         self.t = 0
         self.t0 = 0
-        self.ecdf_groups = []
-        self.ecdf_contexts = []
+        self.relrank_groups = []
+        self.relrank_contexts = []
         self.actions = []
         self.rewards = []
 
@@ -584,24 +588,24 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             return np.random.randint(low=0, high=(n_arms - 1))
         mu_hat = self.get_mu_estimate()
 
-        # Compute ECDF
-        X_hist = np.concatenate([c[None, :] for c in self.ecdf_contexts])
-        s_hist = np.array(self.ecdf_groups)
+        # Compute Relative Ranks
+        X_hist = np.concatenate([c[None, :] for c in self.relrank_contexts])
+        s_hist = np.array(self.relrank_groups)
         rewards = np.zeros(n_arms)
-        ecdfs = np.zeros(n_arms)
+        relranks = np.zeros(n_arms)
         
         # ----------------- RANK APPROXIMATION PRIVATIZATION -----------------
         # NOTE: Per-query sensitivity is 1/(t-t0) -- max change in relative ranks for one arm on neighboring datasets, considering JDP
         sensitivity = 1 / (self.t - self.t0)
 
-        # NOTE: DEPRECATED: each round is (eps_ecdf_round, delta_ecdf_round)-DP, so use similar logic as before for composing n_arms releases per round
-        # delta_tilde_round = self.delta_tilde * (self.delta_ecdf_round / self.delta_ecdf)
-        # delta_ecdf_arm = (self.delta_ecdf_round - delta_tilde_round) / n_arms
-        # epsilon_ecdf_arm = self.eps_ecdf_round / np.sqrt(2 * n_arms * np.log(1 / delta_tilde_round))
-        # sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / delta_ecdf_arm))) / epsilon_ecdf_arm
+        # NOTE: DEPRECATED: each round is (eps_relrank_round, delta_relrank_round)-DP, so use similar logic as before for composing n_arms releases per round
+        # delta_tilde_round = self.delta_tilde * (self.delta_relrank_round / self.delta_relrank)
+        # delta_relrank_arm = (self.delta_relrank_round - delta_tilde_round) / n_arms
+        # epsilon_relrank_arm = self.eps_relrank_round / np.sqrt(2 * n_arms * np.log(1 / delta_tilde_round))
+        # sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / delta_relrank_arm))) / epsilon_relrank_arm
 
         # TODO: Calculate tighter sigma via analytic gaussian algorithm
-        sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_ecdf_round))) / self.eps_ecdf_round
+        sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
         noise = np.random.normal(0, sigma, n_arms)
 
         for i in range(n_arms):
@@ -609,20 +613,20 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             rs = np.dot(X[i], mu_hat)
             indic = (rewards <= rs).astype(float)
             if indic.size == 0:
-                ecdfs[i] = np.nan  # No data for this group yet
+                relranks[i] = np.nan  # No data for this group yet
             else:
-                ecdfs[i] = np.mean(indic) + noise[i]
+                relranks[i] = np.mean(indic) + noise[i]
                 # NOTE: Uncomment to remove noise
-                # ecdfs[i] = np.mean(indic)
+                # relranks[i] = np.mean(indic)
 
-        # TODO: do we need to clip after adding noise? or do we not care about the reward being [0,1] anymore?
+        # TODO: Do we need to clip after adding noise? or do we not care about the reward being [0,1] anymore?
 
-        nan = np.isnan(ecdfs)
+        nan = np.isnan(relranks)
         if any(nan):
-            ecdfs[nan] = np.random.rand(sum(nan))
+            relranks[nan] = np.random.rand(sum(nan))
 
         # Select arm, break ties randomly
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        arg_max = np.argwhere(relranks == np.max(relranks))[0, :]
         return np.random.choice(arg_max)
 
     def update_history(self, X, r, a, s):
@@ -630,17 +634,17 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         t0_new = np.floor((self.t - 1) / 2)
         if self.t0 != t0_new:
             self.online_ridge.update(
-                self.ecdf_contexts[self.actions[0]], self.rewards[0]
+                self.relrank_contexts[self.actions[0]], self.rewards[0]
             )
-            self.ecdf_contexts, self.actions, self.rewards = (
-                self.ecdf_contexts[n_arms:],
+            self.relrank_contexts, self.actions, self.rewards = (
+                self.relrank_contexts[n_arms:],
                 self.actions[1:],
                 self.rewards[1:],
             )
-            self.ecdf_groups = self.ecdf_groups[n_arms:]
+            self.relrank_groups = self.relrank_groups[n_arms:]
         for i in range(n_arms):
-            self.ecdf_contexts.append(X[i])
-            self.ecdf_groups.append(s[i])
+            self.relrank_contexts.append(X[i])
+            self.relrank_groups.append(s[i])
         self.actions.append(a)
         self.rewards.append(r)
 
