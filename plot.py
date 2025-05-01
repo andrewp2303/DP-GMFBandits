@@ -260,6 +260,6 @@ def main(mult=0.8, dpi=200, save_fig=True, dir="", x_dim=4, y_dim=3.5, **kwargs)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--plot-path', type=str, default="exps/adult_multi/trial_g_RAC1P_na_20_d_1_n_5000_nm0.2_lambda_0.01_T=2500_ns_10_ecOFUL0.01/", help='Directory containing plots and results.csv')
+    parser.add_argument('--plot-path', type=str, default="exps/adult/trial_g_RAC1P_na_20_d_1_n_5000_nm0.2_lambda_0.01_T=2500_ns_10_ecOFUL0.01/", help='Directory containing plots and results.csv')
     args = parser.parse_args()
     main_adult(dir=f"{args.plot_path}/plots/")

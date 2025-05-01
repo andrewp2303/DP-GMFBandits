@@ -1,3 +1,5 @@
+from functools import reduce
+
 import folktables
 import numpy as np
 import pandas as pd
@@ -10,16 +12,36 @@ from policies import FairBanditProblem
 
 
 class RealData(FairBanditProblem):
+    def __init__(self, xs, ys, x_g, group, mu_star, n_arms=10, noise_magnitude=None):
+        self.t = -1
+        self.d = xs.shape[1]
+        self.xs = xs
+        self.ys = ys
+        self.group = group
+        self.noise_magnitude = noise_magnitude
+        true_rewards = np.einsum("ijk,k->ij", x_g, mu_star)
+
+        super().__init__(
+            n_arms=n_arms,
+            n_groups=x_g.shape[2],
+            mu_star=mu_star,
+            true_rewards=true_rewards,
+        )
+
     def get_context(self):
         self.t += 1
-        return self.xs[self.t]
+
+        return (
+            self.xs[self.t * self.n_arms : (self.t + 1) * self.n_arms],
+            self.group[self.t * self.n_arms : (self.t + 1) * self.n_arms],
+        )
 
     def get_noisy_reward(self, x, a):
         if self.noise_magnitude is not None:
             return (
                 np.dot(x, self.mu_star) + self.noise_magnitude * np.random.randn(1)[0]
             )
-        return self.ys[self.t][a]
+        return self.ys[self.t * self.n_arms + a]
 
     def get_reward(self, x, a):
         return np.dot(x, self.mu_star)
@@ -29,17 +51,7 @@ class RealData(FairBanditProblem):
         shuffled_indexes = np.random.choice(range(len(self.ys)), size=len(self.ys))
         self.xs = self.xs[shuffled_indexes]
         self.ys = self.ys[shuffled_indexes]
-
-    def __init__(self, xs, ys, mu_star, noise_magnitude=None):
-        self.t = -1
-        self.n_arms = xs.shape[1]
-        self.d = xs.shape[2]
-        self.xs = xs
-        self.ys = ys
-        self.noise_magnitude = noise_magnitude
-        true_rewards = np.einsum("ijk,k->ij", self.xs, mu_star)
-
-        super().__init__(n_arms=xs.shape[1], mu_star=mu_star, true_rewards=true_rewards)
+        self.group = self.group[shuffled_indexes]
 
 
 def get_dataset_string(group, density, n_samples_per_group, seed, poly_degree):
@@ -47,10 +59,11 @@ def get_dataset_string(group, density, n_samples_per_group, seed, poly_degree):
 
 
 def load_adult(
-    group="SEX",
+    group="RAC1P",
     density=0.1,
     poly_degree=1,
     n_samples_per_group=50000,
+    n_arms=10,
     seed=42,
     data_dir="data/adult_proc/",
     noise_magnitude=None,
@@ -62,7 +75,7 @@ def load_adult(
     data_dict = None
     while data_dict is None:
         try:
-            data_dict = np.load(f"{data_pre_dir}data.npz")
+            data_dict = np.load(f"{data_pre_dir}multigroup_data.npz")
         except:
             print("preprocessed data not found. start preprocessing adult...")
             preprocess_folktables(
@@ -72,13 +85,16 @@ def load_adult(
     return RealData(
         data_dict["x"],
         data_dict["y"],
+        data_dict["x_g"],
+        data_dict["group"],
         data_dict["mu_star"],
+        n_arms=n_arms,
         noise_magnitude=noise_magnitude,
     )
 
 
 def preprocess_folktables(
-    group="SEX",
+    group="RAC1P",
     density=0.1,
     poly_degree=1,
     n_samples_per_group=50000,
@@ -187,7 +203,7 @@ def preprocess_folktables(
 
         if process_x is not None:
             x = process_x(x)
-        if process_y is not None:
+        if process_x is not None:
             y = process_y(y)
 
         # add bias feature
@@ -215,9 +231,13 @@ def preprocess_folktables(
             y_b[:, i] = yg[selected]
             g_b[:, i] = gg[selected]
 
-        x = x_b.reshape(-1, x.shape[1])
-        y = y_b.reshape(-1)
-        group = g_b.reshape(-1)
+        all_group_select = reduce(
+            lambda x, y: x | y, [(group == sg) for sg in selected_groups]
+        )
+
+        x = x[all_group_select]
+        y = y[all_group_select]
+        group = group[all_group_select]
 
         return x, y, group, x_b, y_b, selected_groups
 
@@ -248,6 +268,49 @@ def preprocess_folktables(
         process_y=lambda i: scaler_y.transform(i.reshape(-1, 1)).reshape(-1),
     )
 
+    # Print feature statistics instead of normalizing
+    print("\n===== FEATURE STATISTICS =====\n")
+    
+    # Get feature names from the ACSIncomeREG problem
+    feature_names = ACSIncomeREG.features
+    
+    # Add a bias term to match the shape of x
+    feature_names = ['bias'] + feature_names
+    
+    # Print statistics for each feature
+    print(f"Total samples: {x.shape[0]}")
+    print(f"Total features: {x.shape[1]}")
+    print("\nFeature statistics:")
+    
+    for i, feature in enumerate(feature_names):
+        if i < x.shape[1]:  # Ensure we don't go out of bounds
+            values = x[:, i]
+            print(f"Feature {i}: {feature}")
+            print(f"  Min: {np.min(values):.6f}")
+            print(f"  Max: {np.max(values):.6f}")
+            print(f"  Mean: {np.mean(values):.6f}")
+            print(f"  Std: {np.std(values):.6f}")
+            print(f"  Median: {np.median(values):.6f}")
+    
+    # Print target (income) statistics
+    print("\nTarget (PINCP) statistics:")
+    print(f"  Min: {np.min(y):.6f}")
+    print(f"  Max: {np.max(y):.6f}")
+    print(f"  Mean: {np.mean(y):.6f}")
+    print(f"  Std: {np.std(y):.6f}")
+    print(f"  Median: {np.median(y):.6f}")
+    
+    # Print max norm information
+    xy_stack = np.hstack([x, y.reshape(-1, 1)])
+    row_norms = np.linalg.norm(xy_stack, axis=1)
+    print(f"\nMax row norm: {np.max(row_norms):.6f}")
+    print(f"Mean row norm: {np.mean(row_norms):.6f}")
+    
+    print("\n===== EXITING EARLY FOR ANALYSIS =====\n")
+    # import sys
+    # sys.exit(0)  # Exit early for analysis
+
+
     # Reward histograms
     y_groups = [y[group == i] for i in selected_groups]
     for i, yg in enumerate(y_groups):
@@ -276,11 +339,16 @@ def preprocess_folktables(
         x_train.transpose() @ y_train,
     )
 
+    group = np.array([selected_groups.index(i) for i in group])
+
     np.savez(
-        f"{data_pre_dir}data.npz",
+        f"{data_pre_dir}multigroup_data.npz",
         mu_star=mu_star,
-        x=x_b,
-        y=y_b,
+        x=x,
+        y=y,
+        x_g=x_b,
+        y_g=y_b,
+        group=group,
         selected_groups=np.array(selected_groups),
     )
 
@@ -312,4 +380,6 @@ def preprocess_folktables(
 
 
 if __name__ == "__main__":
-    load_adult()
+    load_adult(density=0.1, n_samples_per_group=500)
+    # load_adult(density=1, n_samples_per_group=5000)
+    # load_adult(density=1, n_samples_per_group=50000)
