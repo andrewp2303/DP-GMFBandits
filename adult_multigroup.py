@@ -21,8 +21,9 @@ def main(
     plot_mult=1.5,  # higher value gives a larger plot
     plot_flag=False,
     epsilon=0.1,
-    delta=1e-5,
+    delta=1e-2,
     L_tilde=1,
+    delta_tilde=1e-3,
     noise_type="gaussian",
 ):
 
@@ -73,9 +74,10 @@ def run(
     exp_dir="exps/adult_multigroup/simple/",
     plot_flag=False,
     epsilon=0.1,
-    delta=1e-5,
+    delta=1e-2,
     L_tilde=1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data_multigroup.py
     alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    delta_tilde=1e-3,
     noise_type="gaussian",
 ):
     from pathlib import Path
@@ -125,11 +127,13 @@ def run(
             T=T,
             epsilon=epsilon,
             delta=delta,
+            delta_tilde=delta_tilde,
             L_tilde=L_tilde,
             alpha_param=alpha_param,
             noise_type=noise_type,
             reg_param=reg_param,
             d=P.d,
+            n_arms=n_arms,
         ),
         lambda: FairGreedy(reg_param, P.d, mu_noise_level),
         # lambda: Greedy(reg_param, P.d),
@@ -200,15 +204,16 @@ if __name__ == "__main__":
         "--plot", action="store_true", help="Enable plotting (default: disabled)"
     )
     args = parser.parse_args()
-    for n_arms in (2,):
+    for n_arms in (10,):
         for n_samples_per_group in (5000,):
             main(
                 n_arms=n_arms,
                 n_samples_per_group=n_samples_per_group,
                 n_seeds=1,
                 plot_flag=args.plot,
-                T=10000,
-                epsilon=1,
+                T=20000,
+                epsilon=10,
                 delta=0.1,
-                L_tilde=1,  # for test purposes - this is max row norm of X+Y
+                L_tilde=1,  # TODO: this needs to be max row norm of X+Y
+                delta_tilde=0.01,
             )

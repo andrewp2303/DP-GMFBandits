@@ -482,7 +482,7 @@ class BinaryMechanism:
         for j in range(self.logT + 1):
             if (t >> j) & 1:
                 estimate += self.alpha_noisy[j]
-                # uncomment below for debugging
+                # NOTE: uncomment below for debugging/noise removal
                 # estimate += self.alpha[j]
 
         return estimate
@@ -546,8 +546,27 @@ class PrivateRidgePolicy(Policy, ABC):
 
 class PrivateFairGreedy(PrivateRidgePolicy):
     def __init__(
-        self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+        self, T, epsilon, delta, delta_tilde, L_tilde, alpha_param, noise_type, reg_param, d, n_arms
     ):
+        # TODO: determine a non-naive epsilon split
+        self.T = T
+        self.n_arms = n_arms
+        self.eps_regression = epsilon / 2
+        self.eps_ecdf = epsilon - self.eps_regression
+        self.delta_tilde = delta_tilde
+        self.delta = delta
+        self.delta_regression = self.delta / 2
+        self.delta_ecdf = self.delta - self.delta_tilde - self.delta_regression 
+        if self.delta_ecdf < 0:
+            raise ValueError("Delta for ECDF is negative, make sure delta_tilde is small enough")
+
+        # n_releases = number of rounds (T) * number of arms per round (n_arms)
+        n_releases = self.T * self.n_arms
+        # Per-round epsilon ε bounded by ε < ε' / sqrt(2 * n_releases * ln(1/δ')) by advanced composition (DRV10)
+        self.eps_ecdf_round = self.eps_ecdf / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
+        # Per-round delta δ bounded by δ < (δ' - δ~) / n_releases by advanced composition (DRV10)
+        self.delta_ecdf_round = self.delta_ecdf / n_releases
+        
         super().__init__(
             T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
         )
@@ -570,6 +589,21 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         s_hist = np.array(self.ecdf_groups)
         rewards = np.zeros(n_arms)
         ecdfs = np.zeros(n_arms)
+        
+        # ----------------- RANK APPROXIMATION PRIVATIZATION -----------------
+        # NOTE: Per-query sensitivity is 1/(t-t0) -- max change in relative ranks for one arm on neighboring datasets, considering JDP
+        sensitivity = 1 / (self.t - self.t0)
+
+        # NOTE: DEPRECATED: each round is (eps_ecdf_round, delta_ecdf_round)-DP, so use similar logic as before for composing n_arms releases per round
+        # delta_tilde_round = self.delta_tilde * (self.delta_ecdf_round / self.delta_ecdf)
+        # delta_ecdf_arm = (self.delta_ecdf_round - delta_tilde_round) / n_arms
+        # epsilon_ecdf_arm = self.eps_ecdf_round / np.sqrt(2 * n_arms * np.log(1 / delta_tilde_round))
+        # sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / delta_ecdf_arm))) / epsilon_ecdf_arm
+
+        # TODO: Calculate tighter sigma via analytic gaussian algorithm
+        sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_ecdf_round))) / self.eps_ecdf_round
+        noise = np.random.normal(0, sigma, n_arms)
+
         for i in range(n_arms):
             rewards = np.einsum("jk,k->j", X_hist[s_hist == s[i]], mu_hat)
             rs = np.dot(X[i], mu_hat)
@@ -577,13 +611,17 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             if indic.size == 0:
                 ecdfs[i] = np.nan  # No data for this group yet
             else:
-                ecdfs[i] = np.mean(indic)
+                ecdfs[i] = np.mean(indic) + noise[i]
+                # NOTE: Uncomment to remove noise
+                # ecdfs[i] = np.mean(indic)
+
+        # TODO: do we need to clip after adding noise? or do we not care about the reward being [0,1] anymore?
 
         nan = np.isnan(ecdfs)
         if any(nan):
             ecdfs[nan] = np.random.rand(sum(nan))
 
-        # Select Arm
+        # Select arm, break ties randomly
         arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
         return np.random.choice(arg_max)
 

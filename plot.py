@@ -165,10 +165,12 @@ def plot_results(
 
     # add some
     if mode_histogram == "number":
-        ax.set_title(f"# of selected groups at T={N_rounds}")
+        max_round = result_df["round"].max() if N_rounds is None else N_rounds
+        ax.set_title(f"# of selected groups at T={max_round}")
         plt.yscale("log")
     elif mode_histogram == "percentage":
-        ax.set_title(f"Percentage of selected groups at T={N_rounds}")
+        max_round = result_df["round"].max() if N_rounds is None else N_rounds
+        ax.set_title(f"Percentage of selected groups at T={max_round}")
         plt.axhline(y=100.0 / n_arms, linestyle="dotted", color="black")
     else:
         raise NotImplementedError
