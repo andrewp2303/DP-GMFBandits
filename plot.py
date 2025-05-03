@@ -67,10 +67,11 @@ def plot_results(
     policy_dict=dict(
         Random="Uniform Random",
         OFUL="OFUL",
-        FairGreedy="Fair-greedy",
-        FairGreedyNoNoise="Fair-greedy no noise",
-        FairGreedyKnownCDF="Fair-greedy (Oracle CDF)",
-        FairGreedyKnownMuStar="Fair-greedy (Oracle rewards)",
+        FairGreedy="Fair-Greedy",
+        PrivateFairGreedy="Private-Fair-Greedy",
+        FairGreedyNoNoise="Fair-Greedy (no noise)",
+        FairGreedyKnownCDF="Fair-Greedy (Oracle CDF)",
+        FairGreedyKnownMuStar="Fair-Greedy (Oracle rewards)",
     ),
     line_style_dict=dict(
         Random="dashed",
@@ -110,7 +111,7 @@ def plot_results(
         hist_dict[label] = []
         
         def extract_ns_value(title):
-            match = re.search(r"ns_(\d+)", title)
+            match = re.search(r"ns=(\d+)", title)
             return int(match.group(1)) if match else None
 
         nseeds = extract_ns_value(dir)

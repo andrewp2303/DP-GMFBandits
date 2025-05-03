@@ -596,7 +596,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         
         # ----------------- RANK APPROXIMATION PRIVATIZATION -----------------
         # NOTE: Per-query sensitivity is 1/(t-t0) -- max change in relative ranks for one arm on neighboring datasets, considering JDP
-        sensitivity = 1 / (self.t - self.t0)
+        sensitivity = 1 / (self.t - 1 - self.t0)
 
         # NOTE: DEPRECATED: each round is (eps_relrank_round, delta_relrank_round)-DP, so use similar logic as before for composing n_arms releases per round
         # delta_tilde_round = self.delta_tilde * (self.delta_relrank_round / self.delta_relrank)
