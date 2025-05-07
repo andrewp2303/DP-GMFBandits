@@ -175,12 +175,6 @@ def run(
             print(f"mu_star = {P.mu_star}")
             break
 
-        for p in ps:
-            print(f"mu_est_MSE = {np.mean((p.get_mu_estimate() - P.mu_star) ** 2)}")
-            print(f"mu_est = {p.get_mu_estimate()}")
-            print(f"mu_star = {P.mu_star}")
-            break
-
         total_ps.extend(ps)
         total_dfs.extend(dfs)
 
