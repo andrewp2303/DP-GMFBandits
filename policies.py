@@ -369,14 +369,14 @@ def test_policy(
 
 
 class BinaryMechanism:
-    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_param):
+    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_regression):
         self.epsilon = epsilon
         self.delta = delta
         self.T = T
         self.L_tilde = L_tilde
         self.d = d
         self.shape = (d + 1, d + 1)
-        self.alpha_param = alpha_param
+        self.alpha_regression = alpha_regression
         self.logT = int(np.ceil(np.log2(T)))
         self.m = self.logT + 1
 
@@ -405,14 +405,14 @@ class BinaryMechanism:
             * (
                 np.sqrt(self.m * self.k)
                 - np.sqrt(self.d)
-                - np.sqrt(2 * np.log(8 * self.T / self.alpha_param))
+                - np.sqrt(2 * np.log(8 * self.T / self.alpha_regression))
             )
             ** 2
         ) - (
             4
             * self.L_tilde**2
             * np.sqrt(self.m * self.k)
-            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_param)))
+            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_regression)))
         )
         samples = np.random.multivariate_normal(
             mean=np.zeros(self.shape[0]), cov=self.cov_matrix, size=self.k
@@ -434,7 +434,7 @@ class BinaryMechanism:
         gamma = (
             sigma_noise
             * np.sqrt(2 * self.m)
-            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_param))
+            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_regression))
         )
         noise = np.random.normal(0, sigma_noise, self.shape)
         noise = (noise + noise.T) / np.sqrt(2)
@@ -492,7 +492,7 @@ class BinaryMechanism:
 
 class OnlinePrivate:
     def __init__(
-        self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param
+        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param
     ):
         self.private_mechanism = BinaryMechanism(
             epsilon=epsilon,
@@ -500,7 +500,7 @@ class OnlinePrivate:
             d=d,
             T=T,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
         )
         self.private_mechanism.define_noise(noise_type)
         self.theta = np.zeros(d)
@@ -525,14 +525,14 @@ class OnlinePrivate:
 
 class PrivateRidgePolicy(Policy, ABC):
     def __init__(
-        self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
     ):
         self.online_ridge = OnlinePrivate(
             T=T / 2,  # We only use the first T/2 rounds for regression
             epsilon=epsilon,
             delta=delta,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
             noise_type=noise_type,
             reg_param=reg_param,
             d=d,
@@ -546,7 +546,7 @@ class PrivateRidgePolicy(Policy, ABC):
 
 class PrivateFairGreedy(PrivateRidgePolicy):
     def __init__(
-        self, T, epsilon, delta, delta_tilde, L_tilde, alpha_param, noise_type, reg_param, d, n_arms
+        self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type, reg_param, d, n_arms
     ):
         # TODO: determine a non-naive epsilon split across regression and relative ranks
         self.T = T
@@ -572,7 +572,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             raise ValueError("Total epsilon for Relative Ranks is too large")
         
         super().__init__(
-            T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+            T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
         )
         self.t = 0
         self.t0 = 0

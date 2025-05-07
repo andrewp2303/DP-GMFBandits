@@ -75,7 +75,7 @@ def run(
     epsilon=0.1,
     delta=1e-2,
     L_tilde=1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
-    alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    alpha_regression=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     delta_tilde=1e-3,
     noise_type="gaussian",
 ):
@@ -117,8 +117,8 @@ def run(
     )
 
     # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
-    if alpha_param is None:
-        alpha_param = 1
+    if alpha_regression is None:
+        alpha_regression = 1
     policies_generators = [
         # lambda: Random(),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
@@ -128,7 +128,7 @@ def run(
             delta=delta,
             delta_tilde=delta_tilde,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
             noise_type=noise_type,
             reg_param=reg_param,
             d=P.d,

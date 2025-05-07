@@ -20,7 +20,7 @@ class FairBanditProblem:
 
     @staticmethod
     def get_rewards_ecdfs_from_rewards(rewards, rs):
-        indic = (rewards <= rs).astype(float)
+        indic = (rewards <= rs).astype(np.float64)
         return np.mean(indic, axis=0)
 
     def get_context(self):
@@ -131,7 +131,7 @@ class FairGreedy(RidgePolicy):
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
         rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
         rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
-        indic = (rewards <= rs).astype(float)
+        indic = (rewards <= rs).astype(np.float64)
         ecdfs = np.mean(indic, axis=0)
 
         # Select Arm
@@ -194,14 +194,14 @@ class OFUL(RidgePolicy):
         self.online_ridge.update(X[a], r)
 
 class BinaryMechanism:
-    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_param):
+    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_regression):
         self.epsilon = epsilon
         self.delta = delta
         self.T = T
         self.L_tilde = L_tilde
         self.d = d
         self.shape = (d + 1, d + 1)
-        self.alpha_param = alpha_param
+        self.alpha_regression = alpha_regression
         self.logT = int(np.ceil(np.log2(T)))
         self.m = self.logT + 1
 
@@ -230,14 +230,14 @@ class BinaryMechanism:
             * (
                 np.sqrt(self.m * self.k)
                 - np.sqrt(self.d)
-                - np.sqrt(2 * np.log(8 * self.T / self.alpha_param))
+                - np.sqrt(2 * np.log(8 * self.T / self.alpha_regression))
             )
             ** 2
         ) - (
             4
             * self.L_tilde**2
             * np.sqrt(self.m * self.k)
-            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_param)))
+            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_regression)))
         )
         samples = np.random.multivariate_normal(
             mean=np.zeros(self.shape[0]), cov=self.cov_matrix, size=self.k
@@ -259,7 +259,7 @@ class BinaryMechanism:
         gamma = (
             sigma_noise
             * np.sqrt(2 * self.m)
-            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_param))
+            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_regression))
         )
         noise = np.random.normal(0, sigma_noise, self.shape)
         noise = (noise + noise.T) / np.sqrt(2)
@@ -317,7 +317,7 @@ class BinaryMechanism:
 
 class OnlinePrivate:
     def __init__(
-        self, d, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param
+        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param
     ):
         self.private_mechanism = BinaryMechanism(
             epsilon=epsilon,
@@ -325,7 +325,7 @@ class OnlinePrivate:
             d=d,
             T=T,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
         )
         self.private_mechanism.define_noise(noise_type)
         self.theta = np.zeros(d)
@@ -350,14 +350,14 @@ class OnlinePrivate:
 
 class PrivateRidgePolicy(Policy, ABC):
     def __init__(
-        self, T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
     ):
         self.online_ridge = OnlinePrivate(
             T=T / 2,  # We only use the first T/2 rounds for regression
             epsilon=epsilon,
             delta=delta,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
             noise_type=noise_type,
             reg_param=reg_param,
             d=d,
@@ -369,15 +369,15 @@ class PrivateRidgePolicy(Policy, ABC):
         return self.online_ridge.theta
 
 class PrivateFairGreedy(PrivateRidgePolicy):
-    def __init__(self, T, epsilon, delta, delta_tilde, L_tilde, alpha_param, noise_type, reg_param, d, n_arms):
+    def __init__(self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type, reg_param, d, n_arms, alpha_eps, alpha_delta):
         # TODO: determine a non-naive epsilon split across regression and relative ranks
         self.T = T
         self.n_arms = n_arms
-        self.eps_regression = epsilon / 2
+        self.eps_regression = epsilon * alpha_eps
         self.eps_relrank = epsilon - self.eps_regression
         self.delta_tilde = delta_tilde
         self.delta = delta
-        self.delta_regression = self.delta / 2
+        self.delta_regression = self.delta * alpha_delta
         self.delta_relrank = self.delta - self.delta_tilde - self.delta_regression 
         if self.delta_relrank < 0:
             raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
@@ -396,7 +396,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             raise ValueError("Total epsilon for Relative Ranks is too large")
         
         super().__init__(
-            T, epsilon, delta, L_tilde, alpha_param, noise_type, reg_param, d
+            T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
         )
         self.t = 0
         self.t0 = 0
@@ -423,8 +423,10 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
         rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
         rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
-        indic = (rewards <= rs).astype(float)
-        relranks = np.mean(indic, axis=0) + noise
+        indic = (rewards <= rs).astype(np.float64)
+        # relranks = np.mean(indic, axis=0) + noise
+        # Uncomment below for debugging/noise removal
+        relranks = np.mean(indic, axis=0)
 
         # Select Arm
         arg_max = np.argwhere(relranks == np.max(relranks))[0, :]

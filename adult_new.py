@@ -3,6 +3,7 @@ from data_new import *
 from plot_new import *
 from policies_new import *
 from pathlib import Path
+import numpy as np
 
 def main(
     exp_suffix="trial",
@@ -19,19 +20,16 @@ def main(
     epsilon=0.1,
     delta=1e-2,
     L_tilde=1,
+    alpha_regression=None,
+    alpha_delta=1/2,    # defines delta split between regression and relative rank
+    alpha_eps=1/2,      # defines epsilon split between regression and relative rank
     delta_tilde=1e-3,
     noise_type="gaussian",
     rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
-    # find trial number manually by checking directories
-    nth_trial = 1
-    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde}_nt={noise_type}_{exp_suffix}={nth_trial}/"
-    while Path(exp_dir).exists():
-        nth_trial += 1
-        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde}_nt={noise_type}_{exp_suffix}={nth_trial}/"
 
-    run(
-        exp_dir=exp_dir,
+    exp_dir = run(
+        exp_suffix=exp_suffix,
         plot_mult=plot_mult,
         group=group,
         density=density,
@@ -46,6 +44,10 @@ def main(
         epsilon=epsilon,
         delta=delta,
         L_tilde=L_tilde,
+        alpha_regression=alpha_regression,
+        alpha_delta=alpha_delta,
+        alpha_eps=alpha_eps,
+        delta_tilde=delta_tilde,
         noise_type=noise_type,
         rescale_bound=rescale_bound,
     )
@@ -53,8 +55,11 @@ def main(
     if plot_flag:
         plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
 
+    return exp_dir
+
 
 def run(
+    exp_suffix="trial",
     # problem parameters,
     problem_seed=42,
     mu_noise_level=1e-8,
@@ -71,20 +76,19 @@ def run(
     T=5000,  # total number of rounds
     algo_seeds=None,
     plot_mult=0.8,
-    exp_dir="exps/adult/",
     plot_flag=False,
     epsilon=0.1,
     delta=1e-2,
-    L_tilde=1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
-    alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    L_tilde=-1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
+    alpha_regression=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
+    alpha_delta=1/2,
+    alpha_eps=1/2,
     delta_tilde=1e-3,
     noise_type="gaussian",
     rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
     assert T <= n_samples_per_group
     assert algo_seeds is not None
-
-    Path(f"{exp_dir}plots/").mkdir(parents=True, exist_ok=True)
 
     P = load_adult(
         group=group,
@@ -95,7 +99,22 @@ def run(
         noise_magnitude=noise_magnitude,
         rescale_bound=rescale_bound,
     )
+    L_tilde = P.L_tilde
+    # Dynamically compute L_tilde if needed
+    print(f"[INFO] Retrieved L_tilde: {L_tilde:.4f}...")
+    if L_tilde is None or L_tilde <= 0:
+        raise ValueError("[INFO] L_tilde could not be determined")
+    
     n_arms = P.n_arms
+
+
+    # find trial number manually by checking directories
+    nth_trial = 1
+    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+    while Path(exp_dir).exists():
+        nth_trial += 1
+        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+    Path(f"{exp_dir}plots/").mkdir(parents=True, exist_ok=True)
 
     params = dict(
         d=P.d,
@@ -111,7 +130,7 @@ def run(
     # plot rewards histograms
     mode_plot_rewards = "density" if compute_density else "hist"
     plot_rewards(
-        P.true_rewards,
+        P.true_rewards.astype(np.float64),
         mode=mode_plot_rewards,
         save=True,
         dir=f"{exp_dir}plots/",
@@ -119,8 +138,8 @@ def run(
         plot_flag=plot_flag,
     )
 
-    if alpha_param is None:
-        alpha_param = 1/T
+    if alpha_regression is None:
+        alpha_regression = 1/T
     policies_generators = [
         # lambda: Random(),
         lambda: OFUL(reg_param, P.d, expl_coeff_oful),
@@ -130,7 +149,9 @@ def run(
             delta=delta,
             delta_tilde=delta_tilde,
             L_tilde=L_tilde,
-            alpha_param=alpha_param,
+            alpha_regression=alpha_regression,
+            alpha_delta=alpha_delta,
+            alpha_eps=alpha_eps,
             noise_type=noise_type,
             reg_param=reg_param,
             d=P.d,
@@ -202,16 +223,31 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    for n_samples_per_group in (50001,):
-        main(
-            n_samples_per_group=n_samples_per_group,
-            n_seeds=1,
-            plot_flag=args.plot,
-            T=10000,
-            epsilon=10,
-            delta=0.1,
-            L_tilde=1,  # TODO: this needs to be max row norm of X+Y
-            delta_tilde=0.01,
-            rescale_bound=None,  # Use rescaled data with bound [-1,1]
-            )
+    exp_dirs = []
+    n_samples_per_groups = (50001,)
+    epsilons = (40,)
+    alpha_delta_epsilons = ((0.5, 0.5),)
+    for n_samples_per_group in n_samples_per_groups:
+        for epsilon in epsilons:
+            for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
+                exp_dir = main(
+                    n_samples_per_group=n_samples_per_group,
+                    n_seeds=3,
+                    plot_flag=args.plot,
+                    T=5000,
+                    epsilon=epsilon,         # total epsilon budget for DPFairGreedy
+                    delta=0.1,          # total delta budget for DPFairGreedy
+                    L_tilde=None,       # max row norm of X+Y, will be computed based on data
+                    alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
+                    alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
+                    delta_tilde=0.01,   # slack on the relative rank delta
+                    rescale_bound=None,
+                )
+                exp_dirs.append(exp_dir)
 
+    print("Output directories by variables:")
+
+    for n_samples_per_group in n_samples_per_groups:
+        for epsilon in epsilons:
+            for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
+                print(f"Output directory for n_samples={n_samples_per_group}, epsilon={epsilon}, alpha_d, alpha_eps=({alpha_delta}, {alpha_eps}): \n{exp_dir}")

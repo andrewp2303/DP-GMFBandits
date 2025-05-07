@@ -30,15 +30,17 @@ class RealData(FairBanditProblem):
         self.xs = self.xs[shuffled_indexes]
         self.ys = self.ys[shuffled_indexes]
 
-    def __init__(self, xs, ys, mu_star, noise_magnitude=None):
+    def __init__(self, xs, ys, mu_star, noise_magnitude=None, L_tilde=None):
         self.t = -1
         self.n_arms = xs.shape[1]
         self.d = xs.shape[2]
         self.xs = xs
         self.ys = ys
         self.noise_magnitude = noise_magnitude
+        self.L_tilde = L_tilde
         true_rewards = np.einsum("ijk,k->ij", self.xs, mu_star)
-
+        
+        print(f"[INFO] Number of features: {self.d}")
         super().__init__(n_arms=xs.shape[1], mu_star=mu_star, true_rewards=true_rewards)
 
 
@@ -93,12 +95,26 @@ def load_adult(
             if rescale_bound is not None:
                 print(f"Creating rescaled data with bound [-{rescale_bound},{rescale_bound}]")
                 data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
+    
+    # Compute appropriate L_tilde if not manually set
+    if self.L_tilde is None or self.L_tilde < 0:
+        max_norm_sq = 0
+        for x_group, y_group in zip(data_dict["x"], data_dict["y"]):
+            for x_vec, y_val in zip(x_group, y_group):
+                total_norm_sq = np.linalg.norm(x_vec) ** 2 + y_val ** 2
+                if total_norm_sq > max_norm_sq:
+                    max_norm_sq = total_norm_sq
+        estimated_L_tilde = np.sqrt(max_norm_sq)
+        print(f"[INFO] Computed L_tilde based on data: {estimated_L_tilde:.4f}")
+    else:
+        estimated_L_tilde = self.L_tilde
 
     return RealData(
         data_dict["x"],
         data_dict["y"],
         data_dict["mu_star"],
         noise_magnitude=noise_magnitude,
+        L_tilde=estimated_L_tilde,
     )
 
 
@@ -155,7 +171,7 @@ def preprocess_folktables(
             # 'COW',  #CLASS OF WORKER
             # 'SCHL', # EDUCATION,  almost ordered
             "MAR",  # MARITAL STATUS
-            "RELP",  # Relationship
+            # "RELP",  # Relationship
             "SEX",  # Sex
             "RAC1P",  # RACE
         ]
@@ -179,8 +195,8 @@ def preprocess_folktables(
             # *[f'OCCP_{i}' for i in range(18)],
             "OCCP",
             "POBP",
-            *[f"RELP_{i + 1}" for i in range(17)],
-            # 'RELP',
+            # *[f"RELP_{i + 1}" for i in range(17)],
+            'RELP',
             "WKHP",
             # 'SEX',
             *[f"SEX_{i + 1}" for i in range(2)],
@@ -224,7 +240,7 @@ def preprocess_folktables(
 
         selected_groups = []
         for i in group_numbers:
-            n_samples = np.sum((group == i).astype(float))
+            n_samples = np.sum((group == i).astype(np.float64))
             if n_samples >= n_samples_per_group:
                 selected_groups.append(i)
 
@@ -277,7 +293,7 @@ def preprocess_folktables(
     y_groups = [y[group == i] for i in selected_groups]
     for i, yg in enumerate(y_groups):
         sg = selected_groups[i]
-        n_samples = np.sum((group == sg).astype(float))
+        n_samples = np.sum((group == sg).astype(np.float64))
         plt.hist(
             yg,
             cumulative=True,
@@ -360,7 +376,7 @@ def rescale_data(data_dict, bound, data_pre_dir):
     # x shape is (n_samples, n_groups, n_features)
     x_reshaped = x.reshape(-1, x.shape[2])  # Reshape to (n_samples*n_groups, n_features)
     
-    # Create MinMaxScaler for features (input)
+    # Now scale the features
     x_scaler = MinMaxScaler(feature_range=(-bound, bound))
     x_rescaled = x_scaler.fit_transform(x_reshaped)
     
@@ -400,7 +416,13 @@ def rescale_data(data_dict, bound, data_pre_dir):
         'selected_groups': selected_groups
     }
 
-
 if __name__ == "__main__":
     # Test the rescaling functionality
-    load_adult(rescale_bound=1)
+    load_adult(
+        group="RAC1P",
+        density=1,
+        poly_degree=1,
+        n_samples_per_group=5002,
+        seed=42,
+        rescale_bound=1
+    )
