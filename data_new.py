@@ -4,7 +4,7 @@ import pandas as pd
 from folktables import ACSDataSource
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures, MinMaxScaler
 
 from policies_new import FairBanditProblem
 
@@ -54,20 +54,45 @@ def load_adult(
     seed=42,
     data_dir="data/adult_proc/",
     noise_magnitude=None,
+    rescale_bound=None,
 ):
     data_str = get_dataset_string(
         group, density, n_samples_per_group, seed, poly_degree
     )
     data_pre_dir = f"{data_dir}{data_str}/"
     data_dict = None
-    while data_dict is None:
+    
+    # Check if rescaled data is requested and exists
+    if rescale_bound is not None:
+        try:
+            data_dict = np.load(f"{data_pre_dir}data_rescaled_b={rescale_bound}.npz")
+            print(f"Loading rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+        except:
+            print(f"Rescaled data with bound [-{rescale_bound},{rescale_bound}] not found. Will create it.")
+            
+    # If rescaled data wasn't loaded, try to load original data
+    if data_dict is None:
         try:
             data_dict = np.load(f"{data_pre_dir}data.npz")
+            
+            # If we need rescaled data but only have original data, create the rescaled version
+            if rescale_bound is not None:
+                print(f"Creating rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+                data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
+                
         except:
-            print("preprocessed data not found. start preprocessing adult...")
+            print("Preprocessed data not found. Start preprocessing adult...")
             preprocess_folktables(
                 group, density, poly_degree, n_samples_per_group, seed, data_dir
             )
+            
+            # After preprocessing, load the data
+            data_dict = np.load(f"{data_pre_dir}data.npz")
+            
+            # If rescaling is needed, do it now
+            if rescale_bound is not None:
+                print(f"Creating rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+                data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
 
     return RealData(
         data_dict["x"],
@@ -311,5 +336,71 @@ def preprocess_folktables(
     plt.show()
 
 
+def rescale_data(data_dict, bound, data_pre_dir):
+    """Rescale the data to the range [-bound, bound] feature-by-feature.
+    
+    Args:
+        data_dict: Dictionary containing 'x', 'y', 'mu_star', and 'selected_groups'
+        bound: The bound value for rescaling
+        data_pre_dir: Directory to save the rescaled data
+        
+    Returns:
+        Rescaled data dictionary
+    """
+    x = data_dict['x']
+    y = data_dict['y']
+    mu_star = data_dict['mu_star']
+    selected_groups = data_dict['selected_groups']
+    
+    # Get original shapes to restore later
+    original_x_shape = x.shape
+    original_y_shape = y.shape
+    
+    # Reshape for rescaling (we need to rescale each feature separately)
+    # x shape is (n_samples, n_groups, n_features)
+    x_reshaped = x.reshape(-1, x.shape[2])  # Reshape to (n_samples*n_groups, n_features)
+    
+    # Create MinMaxScaler for features (input)
+    x_scaler = MinMaxScaler(feature_range=(-bound, bound))
+    x_rescaled = x_scaler.fit_transform(x_reshaped)
+    
+    # Reshape x back to original shape
+    x_rescaled = x_rescaled.reshape(original_x_shape)
+    
+    # Rescale y (output) to [-bound, bound]
+    y_reshaped = y.reshape(-1, 1)  # Reshape to (n_samples*n_groups, 1)
+    y_scaler = MinMaxScaler(feature_range=(-bound, bound))
+    y_rescaled = y_scaler.fit_transform(y_reshaped)
+    y_rescaled = y_rescaled.reshape(original_y_shape)
+    
+    # We need to adjust mu_star to account for the rescaling
+    # This ensures that x @ mu_star still approximates y after rescaling
+    # We can solve for new mu_star using least squares on the rescaled data
+    x_flat = x_rescaled.reshape(-1, x_rescaled.shape[2])
+    y_flat = y_rescaled.reshape(-1)
+    mu_star_rescaled = np.linalg.solve(
+        (x_flat.transpose() @ x_flat) + 1e-8 * np.eye(x_flat.shape[1]),
+        x_flat.transpose() @ y_flat,
+    )
+    
+    # Save the rescaled data
+    np.savez(
+        f"{data_pre_dir}data_rescaled_b={bound}.npz",
+        mu_star=mu_star_rescaled,
+        x=x_rescaled,
+        y=y_rescaled,
+        selected_groups=selected_groups
+    )
+    
+    # Return the rescaled data dictionary
+    return {
+        'mu_star': mu_star_rescaled,
+        'x': x_rescaled,
+        'y': y_rescaled,
+        'selected_groups': selected_groups
+    }
+
+
 if __name__ == "__main__":
-    load_adult()
+    # Test the rescaling functionality
+    load_adult(rescale_bound=1)

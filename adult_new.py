@@ -21,6 +21,7 @@ def main(
     L_tilde=1,
     delta_tilde=1e-3,
     noise_type="gaussian",
+    rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
     # find trial number manually by checking directories
     nth_trial = 1
@@ -46,6 +47,7 @@ def main(
         delta=delta,
         L_tilde=L_tilde,
         noise_type=noise_type,
+        rescale_bound=rescale_bound,
     )
 
     if plot_flag:
@@ -77,6 +79,7 @@ def run(
     alpha_param=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     delta_tilde=1e-3,
     noise_type="gaussian",
+    rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
     assert T <= n_samples_per_group
     assert algo_seeds is not None
@@ -90,6 +93,7 @@ def run(
         n_samples_per_group=n_samples_per_group,
         seed=problem_seed,
         noise_magnitude=noise_magnitude,
+        rescale_bound=rescale_bound,
     )
     n_arms = P.n_arms
 
@@ -203,10 +207,11 @@ if __name__ == "__main__":
             n_samples_per_group=n_samples_per_group,
             n_seeds=1,
             plot_flag=args.plot,
-            T=50000,
+            T=10000,
             epsilon=10,
             delta=0.1,
             L_tilde=1,  # TODO: this needs to be max row norm of X+Y
             delta_tilde=0.01,
+            rescale_bound=None,  # Use rescaled data with bound [-1,1]
             )
 
