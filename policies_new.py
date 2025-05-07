@@ -382,8 +382,10 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         if self.delta_relrank < 0:
             raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
 
-        # n_releases = number of rounds (T) * number of arms per round (n_arms)
-        n_releases = self.T * self.n_arms
+        # n_releases = number of rounds (T)
+        # NOTE: even though there are n_arms, our notion of adjacency is that only one X_t,k differs
+        # Hence, we use sequential composition over T rounds, and parallel composition over n_arms arms
+        n_releases = self.T
         # Per-release (per-arm) epsilon ε bounded by ε < ε_relrank / sqrt(2 * n_releases * ln(1/δ̃)) by advanced composition (DRV10)
         self.eps_relrank_release = self.eps_relrank / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
         # Per-release (per-arm) delta δ bounded by δ < (δ_relrank - δ̃) / n_releases by advanced composition (DRV10)

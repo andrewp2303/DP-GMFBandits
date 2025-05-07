@@ -5,7 +5,7 @@ from policies_new import *
 from pathlib import Path
 
 def main(
-    exp_prefix="trial",
+    exp_suffix="trial",
     group="RAC1P",
     density=1,  # 1 to load the full folktables dataset, smaller than one for a smaller portion.
     n_samples_per_group=5000,  # minimum number of samples for each group: smaller groups are discarded
@@ -22,10 +22,12 @@ def main(
     delta_tilde=1e-3,
     noise_type="gaussian",
 ):
-
-    exp_dir = (
-        f"exps/adult/{exp_prefix}_eps={epsilon}_del={delta}_T={T}_ns={n_seeds}_Lt={L_tilde}_nt={noise_type}/"
-    )
+    # find trial number manually by checking directories
+    nth_trial = 1
+    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde}_nt={noise_type}_{exp_suffix}={nth_trial}/"
+    while Path(exp_dir).exists():
+        nth_trial += 1
+        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde}_nt={noise_type}_{exp_suffix}={nth_trial}/"
 
     run(
         exp_dir=exp_dir,
@@ -199,9 +201,9 @@ if __name__ == "__main__":
     for n_samples_per_group in (50001,):
         main(
             n_samples_per_group=n_samples_per_group,
-            n_seeds=5,
+            n_seeds=1,
             plot_flag=args.plot,
-            T=20000,
+            T=50000,
             epsilon=10,
             delta=0.1,
             L_tilde=1,  # TODO: this needs to be max row norm of X+Y
