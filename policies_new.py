@@ -266,15 +266,15 @@ class BinaryMechanism:
         return noise + 2 * gamma * np.eye(self.shape[0])
         # return noise
 
-    def define_noise(self, noise_type="gaussian"):
-        if noise_type == "gaussian":
+    def define_noise(self, noise_type_reg="gaussian"):
+        if noise_type_reg == "gaussian":
             self.noise = self._gaussian_noise
-        elif noise_type == "wishart":
+        elif noise_type_reg == "wishart":
             self.noise = self._wishart_noise
-        elif noise_type == "shifted_wishart":
+        elif noise_type_reg == "shifted_wishart":
             self.noise = self._shifted_wishart_noise
         else:
-            print(f"Invalid noise type: {noise_type}")
+            print(f"Invalid noise type: {noise_type_reg}")
             raise ValueError(
                 "Invalid noise type. Choose 'gaussian', 'wishart', or 'shifted_wishart'."
             )
@@ -317,7 +317,7 @@ class BinaryMechanism:
 
 class OnlinePrivate:
     def __init__(
-        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param
+        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param
     ):
         self.private_mechanism = BinaryMechanism(
             epsilon=epsilon,
@@ -327,7 +327,7 @@ class OnlinePrivate:
             L_tilde=L_tilde,
             alpha_regression=alpha_regression,
         )
-        self.private_mechanism.define_noise(noise_type)
+        self.private_mechanism.define_noise(noise_type_reg)
         self.theta = np.zeros(d)
         self.updates_count = 0
         self.XTX = reg_param * np.eye(d)
@@ -350,7 +350,7 @@ class OnlinePrivate:
 
 class PrivateRidgePolicy(Policy, ABC):
     def __init__(
-        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
+        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
     ):
         self.online_ridge = OnlinePrivate(
             T=T / 2,  # We only use the first T/2 rounds for regression
@@ -358,7 +358,7 @@ class PrivateRidgePolicy(Policy, ABC):
             delta=delta,
             L_tilde=L_tilde,
             alpha_regression=alpha_regression,
-            noise_type=noise_type,
+            noise_type_reg=noise_type_reg,
             reg_param=reg_param,
             d=d,
         )
@@ -369,34 +369,48 @@ class PrivateRidgePolicy(Policy, ABC):
         return self.online_ridge.theta
 
 class PrivateFairGreedy(PrivateRidgePolicy):
-    def __init__(self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type, reg_param, d, n_arms, alpha_eps, alpha_delta):
+    def __init__(self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type_reg, noise_type_rank,reg_param, d, n_arms, alpha_eps, alpha_delta):
         # TODO: determine a non-naive epsilon split across regression and relative ranks
         self.T = T
         self.n_arms = n_arms
+        self.noise_type_rank = noise_type_rank
         self.eps_regression = epsilon * alpha_eps
         self.eps_relrank = epsilon - self.eps_regression
         self.delta_tilde = delta_tilde
         self.delta = delta
         self.delta_regression = self.delta * alpha_delta
-        self.delta_relrank = self.delta - self.delta_tilde - self.delta_regression 
-        if self.delta_relrank < 0:
-            raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
+        if self.noise_type_rank == "approx":
+            self.delta_relrank = self.delta - self.delta_tilde - self.delta_regression
+            if self.delta_relrank < 0:
+                raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
+        elif self.noise_type_rank == "zcdp":
+            self.delta_relrank = self.delta - self.delta_regression
 
         # n_releases = number of rounds (T)
         # NOTE: even though there are n_arms, our notion of adjacency is that only one X_t,k differs
         # Hence, we use sequential composition over T rounds, and parallel composition over n_arms arms
         n_releases = self.T
-        # Per-release (per-arm) epsilon ε bounded by ε < ε_relrank / sqrt(2 * n_releases * ln(1/δ̃)) by advanced composition (DRV10)
-        self.eps_relrank_release = self.eps_relrank / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
-        # Per-release (per-arm) delta δ bounded by δ < (δ_relrank - δ̃) / n_releases by advanced composition (DRV10)
-        self.delta_relrank_release = self.delta_relrank / n_releases
 
-        # Assert that total epsilon actually being used is within bounds, according to DRV10
-        if self.eps_relrank_release * np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde)) > self.eps_relrank:
-            raise ValueError("Total epsilon for Relative Ranks is too large")
+        if self.noise_type_rank == "approx":
+            # Per-release (per-arm) epsilon ε bounded by ε < ε_relrank / sqrt(2 * n_releases * ln(1/δ̃)) by advanced composition (DRV10)
+            self.eps_relrank_release = self.eps_relrank / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
+            # Per-release (per-arm) delta δ bounded by δ < (δ_relrank - δ̃) / n_releases by advanced composition (DRV10)
+            self.delta_relrank_release = self.delta_relrank / n_releases
+
+            # Assert that total epsilon actually being used is within bounds, according to DRV10
+            if self.eps_relrank_release * np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde)) > self.eps_relrank:
+                raise ValueError("Total epsilon for Relative Ranks is too large")
+        elif self.noise_type_rank == "zcdp":
+            # Compute per-release rho_rank using the provided formula
+            def compute_rho_rank(eps_rank, delta_rank):
+                log_term = np.log(1/delta_rank)
+                return (2*eps_rank + 4*log_term + 4*np.sqrt(log_term*(log_term+eps_rank))) / 2
+            self.rho_rank = compute_rho_rank(self.eps_relrank, self.delta_relrank)
+        else:
+            raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
         
         super().__init__(
-            T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
+            T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
         )
         self.t = 0
         self.t0 = 0
@@ -412,21 +426,28 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         mu_hat = self.get_mu_estimate()
 
 		# ----------------- RANK APPROXIMATION PRIVATIZATION -----------------
-        # NOTE: Per-query sensitivity is 1/(t-t0) -- max change in relative ranks for one arm on neighboring datasets, considering JDP
-        sensitivity = 1 / (self.t - 1 - self.t0)
+        # NOTE: Per-query sensitivity is 1/N_t -- max change in relative ranks for one arm on neighboring datasets, considering JDP
+        N_t = self.t - 1 - self.t0
+        sensitivity = 1 / N_t
 
-        # TODO: Calculate tighter sigma via analytic gaussian algorithm
-        sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
-        noise = np.random.normal(0, sigma, n_arms)
+        # Compute noise (depends on mode)
+        if self.noise_type_rank == "approx":
+            sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
+            noise = np.random.normal(0, sigma, n_arms)
+        elif self.noise_type_rank == "zcdp":
+            sigma = 1 / (np.sqrt(N_t * self.rho_rank))
+            noise = np.random.normal(0, sigma, n_arms)
+        else:
+            raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
 
         # Compute ECDF
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
         rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
         rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
         indic = (rewards <= rs).astype(np.float64)
-        # relranks = np.mean(indic, axis=0) + noise
+        relranks = np.mean(indic, axis=0) + noise
         # Uncomment below for debugging/noise removal
-        relranks = np.mean(indic, axis=0)
+        # relranks = np.mean(indic, axis=0)
 
         # Select Arm
         arg_max = np.argwhere(relranks == np.max(relranks))[0, :]

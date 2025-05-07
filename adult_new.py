@@ -19,12 +19,13 @@ def main(
     plot_flag=False,
     epsilon=0.1,
     delta=1e-2,
-    L_tilde=1,
+    L_tilde=None,
     alpha_regression=None,
     alpha_delta=1/2,    # defines delta split between regression and relative rank
     alpha_eps=1/2,      # defines epsilon split between regression and relative rank
     delta_tilde=1e-3,
-    noise_type="gaussian",
+    noise_type_reg="gaussian",
+    noise_type_rank="zcdp",
     rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
 
@@ -48,7 +49,8 @@ def main(
         alpha_delta=alpha_delta,
         alpha_eps=alpha_eps,
         delta_tilde=delta_tilde,
-        noise_type=noise_type,
+        noise_type_reg=noise_type_reg,
+        noise_type_rank=noise_type_rank,
         rescale_bound=rescale_bound,
     )
 
@@ -79,12 +81,13 @@ def run(
     plot_flag=False,
     epsilon=0.1,
     delta=1e-2,
-    L_tilde=-1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
+    L_tilde=None,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
     alpha_regression=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     alpha_delta=1/2,
     alpha_eps=1/2,
     delta_tilde=1e-3,
-    noise_type="gaussian",
+    noise_type_reg="gaussian",
+    noise_type_rank="zcdp",
     rescale_bound=None,  # Bound for rescaling features, None for no rescaling
 ):
     assert T <= n_samples_per_group
@@ -98,6 +101,7 @@ def run(
         seed=problem_seed,
         noise_magnitude=noise_magnitude,
         rescale_bound=rescale_bound,
+        L_tilde=L_tilde,
     )
     L_tilde = P.L_tilde
     # Dynamically compute L_tilde if needed
@@ -110,10 +114,10 @@ def run(
 
     # find trial number manually by checking directories
     nth_trial = 1
-    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
     while Path(exp_dir).exists():
         nth_trial += 1
-        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
     Path(f"{exp_dir}plots/").mkdir(parents=True, exist_ok=True)
 
     params = dict(
@@ -152,7 +156,8 @@ def run(
             alpha_regression=alpha_regression,
             alpha_delta=alpha_delta,
             alpha_eps=alpha_eps,
-            noise_type=noise_type,
+            noise_type_reg=noise_type_reg,
+            noise_type_rank=noise_type_rank,
             reg_param=reg_param,
             d=P.d,
             n_arms=n_arms,
@@ -225,22 +230,23 @@ if __name__ == "__main__":
 
     exp_dirs = []
     n_samples_per_groups = (50001,)
-    epsilons = (40,)
-    alpha_delta_epsilons = ((0.5, 0.5),)
+    epsilons = (50,)
+    alpha_delta_epsilons = ((0.9, 0.9),)
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
             for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
                 exp_dir = main(
                     n_samples_per_group=n_samples_per_group,
-                    n_seeds=3,
+                    n_seeds=1,
                     plot_flag=args.plot,
-                    T=5000,
+                    T=50000,
                     epsilon=epsilon,         # total epsilon budget for DPFairGreedy
                     delta=0.1,          # total delta budget for DPFairGreedy
                     L_tilde=None,       # max row norm of X+Y, will be computed based on data
                     alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
                     alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
-                    delta_tilde=0.01,   # slack on the relative rank delta
+                    delta_tilde=0.001,   # slack on the relative rank delta for advanced composition
+                    noise_type_rank="zcdp",
                     rescale_bound=None,
                 )
                 exp_dirs.append(exp_dir)

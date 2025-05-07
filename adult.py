@@ -24,11 +24,11 @@ def main(
     delta=1e-2,
     L_tilde=1,
     delta_tilde=1e-3,
-    noise_type="gaussian",
+    noise_type_reg="gaussian",
 ):
 
     exp_dir = (
-        f"exps/adult/{exp_prefix}_na={n_arms}_T={T}_ns={n_seeds}_eps={epsilon}_del={delta}_Lt={L_tilde}_nt={noise_type}/"
+        f"exps/adult/{exp_prefix}_na={n_arms}_T={T}_ns={n_seeds}_eps={epsilon}_del={delta}_Lt={L_tilde}_nt={noise_type_reg}/"
     )
     run(
         exp_dir=exp_dir,
@@ -47,7 +47,7 @@ def main(
         epsilon=epsilon,
         delta=delta,
         L_tilde=L_tilde,
-        noise_type=noise_type,
+        noise_type_reg=noise_type_reg,
     )
     if plot_flag:
         plot.main(dir=f"{exp_dir}plots/", mult=plot_mult, mode_histogram="percentage")
@@ -77,7 +77,7 @@ def run(
     L_tilde=1,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
     alpha_regression=None,  # confidence parameter --- usual choice is 1/T according to Shariff & Sheffet 2018
     delta_tilde=1e-3,
-    noise_type="gaussian",
+    noise_type_reg="gaussian",
 ):
     from pathlib import Path
 
@@ -129,7 +129,7 @@ def run(
             delta_tilde=delta_tilde,
             L_tilde=L_tilde,
             alpha_regression=alpha_regression,
-            noise_type=noise_type,
+            noise_type_reg=noise_type_reg,
             reg_param=reg_param,
             d=P.d,
             n_arms=n_arms,

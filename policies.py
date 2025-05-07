@@ -441,15 +441,15 @@ class BinaryMechanism:
         return noise + 2 * gamma * np.eye(self.shape[0])
         # return noise
 
-    def define_noise(self, noise_type="gaussian"):
-        if noise_type == "gaussian":
+    def define_noise(self, noise_type_reg="gaussian"):
+        if noise_type_reg == "gaussian":
             self.noise = self._gaussian_noise
-        elif noise_type == "wishart":
+        elif noise_type_reg == "wishart":
             self.noise = self._wishart_noise
-        elif noise_type == "shifted_wishart":
+        elif noise_type_reg == "shifted_wishart":
             self.noise = self._shifted_wishart_noise
         else:
-            print(f"Invalid noise type: {noise_type}")
+            print(f"Invalid noise type: {noise_type_reg}")
             raise ValueError(
                 "Invalid noise type. Choose 'gaussian', 'wishart', or 'shifted_wishart'."
             )
@@ -492,7 +492,7 @@ class BinaryMechanism:
 
 class OnlinePrivate:
     def __init__(
-        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param
+        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param
     ):
         self.private_mechanism = BinaryMechanism(
             epsilon=epsilon,
@@ -502,7 +502,7 @@ class OnlinePrivate:
             L_tilde=L_tilde,
             alpha_regression=alpha_regression,
         )
-        self.private_mechanism.define_noise(noise_type)
+        self.private_mechanism.define_noise(noise_type_reg)
         self.theta = np.zeros(d)
         self.updates_count = 0
         self.XTX = reg_param * np.eye(d)
@@ -525,7 +525,7 @@ class OnlinePrivate:
 
 class PrivateRidgePolicy(Policy, ABC):
     def __init__(
-        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
+        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
     ):
         self.online_ridge = OnlinePrivate(
             T=T / 2,  # We only use the first T/2 rounds for regression
@@ -533,7 +533,7 @@ class PrivateRidgePolicy(Policy, ABC):
             delta=delta,
             L_tilde=L_tilde,
             alpha_regression=alpha_regression,
-            noise_type=noise_type,
+            noise_type_reg=noise_type_reg,
             reg_param=reg_param,
             d=d,
         )
@@ -546,7 +546,7 @@ class PrivateRidgePolicy(Policy, ABC):
 
 class PrivateFairGreedy(PrivateRidgePolicy):
     def __init__(
-        self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type, reg_param, d, n_arms
+        self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type_reg, reg_param, d, n_arms
     ):
         # TODO: determine a non-naive epsilon split across regression and relative ranks
         self.T = T
@@ -572,7 +572,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             raise ValueError("Total epsilon for Relative Ranks is too large")
         
         super().__init__(
-            T, epsilon, delta, L_tilde, alpha_regression, noise_type, reg_param, d
+            T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
         )
         self.t = 0
         self.t0 = 0

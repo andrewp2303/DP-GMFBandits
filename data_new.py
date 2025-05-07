@@ -57,6 +57,7 @@ def load_adult(
     data_dir="data/adult_proc/",
     noise_magnitude=None,
     rescale_bound=None,
+    L_tilde=None,
 ):
     data_str = get_dataset_string(
         group, density, n_samples_per_group, seed, poly_degree
@@ -97,7 +98,7 @@ def load_adult(
                 data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
     
     # Compute appropriate L_tilde if not manually set
-    if self.L_tilde is None or self.L_tilde < 0:
+    if L_tilde is None or L_tilde < 0:
         max_norm_sq = 0
         for x_group, y_group in zip(data_dict["x"], data_dict["y"]):
             for x_vec, y_val in zip(x_group, y_group):
@@ -107,7 +108,7 @@ def load_adult(
         estimated_L_tilde = np.sqrt(max_norm_sq)
         print(f"[INFO] Computed L_tilde based on data: {estimated_L_tilde:.4f}")
     else:
-        estimated_L_tilde = self.L_tilde
+        estimated_L_tilde = L_tilde
 
     return RealData(
         data_dict["x"],

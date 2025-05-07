@@ -72,7 +72,7 @@ def plot_results(
     ),
     line_style_dict=dict(
         Random="dashdot",
-        OFUL="solid",
+        OFUL="dotted",
         FairGreedy="solid",
         PrivateFairGreedy="solid",
     ),
