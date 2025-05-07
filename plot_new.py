@@ -47,9 +47,8 @@ def plot_rewards(
         if save:
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.png")
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.pdf")
-        
-        if plot_flag:
-            plt.show()
+
+        plt.clf()
 
     # figure(figsize=fig_size, dpi=dpi)
     # for i in range(n_arms):

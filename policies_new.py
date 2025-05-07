@@ -413,12 +413,6 @@ class PrivateFairGreedy(PrivateRidgePolicy):
         # NOTE: Per-query sensitivity is 1/(t-t0) -- max change in relative ranks for one arm on neighboring datasets, considering JDP
         sensitivity = 1 / (self.t - 1 - self.t0)
 
-        # NOTE: DEPRECATED: each round is (eps_relrank_round, delta_relrank_round)-DP, so use similar logic as before for composing n_arms releases per round
-        # delta_tilde_round = self.delta_tilde * (self.delta_relrank_round / self.delta_relrank)
-        # delta_relrank_arm = (self.delta_relrank_round - delta_tilde_round) / n_arms
-        # epsilon_relrank_arm = self.eps_relrank_round / np.sqrt(2 * n_arms * np.log(1 / delta_tilde_round))
-        # sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / delta_relrank_arm))) / epsilon_relrank_arm
-
         # TODO: Calculate tighter sigma via analytic gaussian algorithm
         sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
         noise = np.random.normal(0, sigma, n_arms)
