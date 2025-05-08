@@ -232,22 +232,22 @@ if __name__ == "__main__":
 
     exp_dirs = []
     n_samples_per_groups = (50001,)
-    epsilons = (30,)
+    epsilons = (15,)
     alpha_delta_epsilons = ((0.9, 0.9),)
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
             for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
                 exp_dir = main(
                     n_samples_per_group=n_samples_per_group,
-                    n_seeds=1,
+                    n_seeds=10,
                     plot_flag=args.plot,
-                    T=5000,
+                    T=50000,
                     epsilon=epsilon,         # total epsilon budget for DPFairGreedy
                     delta=0.1,          # total delta budget for DPFairGreedy
                     L_tilde=None,       # max row norm of X+Y, will be computed based on data
                     alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
                     alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
-                    delta_tilde=0.001,   # slack on the relative rank delta for advanced composition
+                    delta_tilde=0.005,   # slack on the relative rank delta for advanced composition
                     noise_type_rank="zcdp",
                     rescale_bound=None,
                 )

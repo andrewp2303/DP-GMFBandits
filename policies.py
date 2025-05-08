@@ -407,7 +407,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             # Compute per-release rho_rank using the provided formula
             def compute_rho_rank(eps_rank, delta_rank):
                 log_term = np.log(1/delta_rank)
-                return (2*eps_rank + 4*log_term + 4*np.sqrt(log_term*(log_term+eps_rank))) / 2
+                return eps_rank + 2*log_term - 2*np.sqrt(log_term*(log_term+eps_rank))
             self.rho_rank = compute_rho_rank(self.eps_relrank, self.delta_relrank)
         else:
             raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
@@ -438,7 +438,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
             noise = np.random.normal(0, sigma, n_arms)
         elif self.noise_type_rank == "zcdp":
-            sigma = 1 / (np.sqrt(N_t * self.rho_rank))
+            sigma = np.sqrt(self.T / (2 * (N_t ** 2) * self.rho_rank))
             noise = np.random.normal(0, sigma, n_arms)
         else:
             raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
