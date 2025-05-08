@@ -47,8 +47,8 @@ def plot_rewards(
         if save:
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.png")
             plt.savefig(f"{dir}{suffix}true_rewards_{mode}_{cdf_string}.pdf")
-        if plot_flag:
-            plt.show()
+
+        plt.clf()
 
     # figure(figsize=fig_size, dpi=dpi)
     # for i in range(n_arms):
@@ -68,18 +68,13 @@ def plot_results(
         Random="Uniform Random",
         OFUL="OFUL",
         FairGreedy="Fair-Greedy",
-        PrivateFairGreedy="Private-Fair-Greedy",
-        FairGreedyNoNoise="Fair-Greedy (no noise)",
-        FairGreedyKnownCDF="Fair-Greedy (Oracle CDF)",
-        FairGreedyKnownMuStar="Fair-Greedy (Oracle rewards)",
+        PrivateFairGreedy="Private Fair-Greedy",
     ),
     line_style_dict=dict(
-        Random="dashed",
+        Random="dashdot",
         OFUL="dotted",
         FairGreedy="solid",
-        Greedy="dashdot",
-        FairGreedyKnownCDF="dashed",
-        FairGreedyKnownMuStar="dashed",
+        PrivateFairGreedy="solid",
     ),
     save_fig=True,
     dir="",
@@ -109,7 +104,7 @@ def plot_results(
         label = policy_dict[p] if p in policy_dict else p
 
         hist_dict[label] = []
-        
+
         def extract_ns_value(title):
             match = re.search(r"ns=(\d+)", title)
             return int(match.group(1)) if match else None
@@ -164,7 +159,7 @@ def plot_results(
         )
         ax.set_xticks(np.array((range(1, n_groups + 1))) + width * 1.7)
 
-    # add some
+    # add titles
     if mode_histogram == "number":
         max_round = result_df["round"].max() if N_rounds is None else N_rounds
         ax.set_title(f"# of selected groups at T={max_round}")
@@ -223,16 +218,14 @@ def plot_results(
         plt.close()
 
 
-def main_adult(dir="", mult=1.2, x_dim=4, y_dim=3.5):
+def main_adult(dir="", mult=1, x_dim=4, y_dim=3.5):
     selected = [
         # "Random",
         "OFUL",
         "FairGreedy",
-        # "Greedy",
         "PrivateFairGreedy",
-        # 'FairGreedyKnownCDF', 'FairGreedyKnownMuStar'
     ]
-    # y_lim_dict = dict(pseudo_regret=[-1, 100], pseudo_fair_regret=[-1, 100])
+    # y_lim_dict = dict(pseudo_regret=[-1, 120], pseudo_fair_regret=[-1, 60])
     # x_lim_dict = dict(pseudo_regret=[-5, 2500], pseudo_fair_regret=[-5, 2500])
     prefix_name = "adult_"
     main(
@@ -261,6 +254,6 @@ def main(mult=0.8, dpi=200, save_fig=True, dir="", x_dim=4, y_dim=3.5, **kwargs)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--plot-path', type=str, default="exps/adult/trial_g_RAC1P_na_20_d_1_n_5000_nm0.2_lambda_0.01_T=2500_ns_10_ecOFUL0.01/", help='Directory containing plots and results.csv')
+    parser.add_argument('--plot-path', type=str, required=True, help='Directory containing plots and results.csv')
     args = parser.parse_args()
-    main_adult(dir=f"{args.plot_path}/plots/")
+    main_adult(dir=f"{args.plot_path}/plots/", x_dim=5, y_dim=3.8)
