@@ -218,6 +218,74 @@ def plot_results(
         plt.close()
 
 
+def plot_privatefairgreedy_across_fields(exp_dirs, field, metric="pseudo_regret", ax=None, save_fig=False, fig_path=None):
+    """
+    Plot PrivateFairGreedy results across varying exp_dirs for a given field.
+    Args:
+        exp_dirs: list of experiment directories (str)
+        field: str, parameter to vary (e.g., 'ad', 'ae', 'eps', 'nr', 'del')
+        metric: str, metric to plot (e.g., 'pseudo_regret', 'pseudo_fair_regret')
+        ax: matplotlib axis (optional)
+        save_fig: whether to save the figure
+        fig_path: where to save the figure
+    """
+    import pandas as pd
+    import sys
+
+    def extract_field(exp_dir, field):
+        # e.g. field='ad' or 'ae' or 'eps' etc.
+        match = re.search(rf"{field}=([0-9.]+)", exp_dir)
+        return float(match.group(1)) if match else None
+
+    results = []
+    for exp_dir in exp_dirs:
+        csv_path = f"{exp_dir.rstrip('/')}/results.csv"
+        try:
+            df = pd.read_csv(csv_path)
+        except Exception as e:
+            print(f"Could not load {csv_path}: {e}")
+            continue
+        val = extract_field(exp_dir, field)
+        # Only keep PrivateFairGreedy
+        df = df[df['policy'] == 'PrivateFairGreedy'].copy()
+        df[field] = val
+        results.append(df)
+
+    if not results:
+        print("No results found.")
+        return
+    df_all = pd.concat(results, ignore_index=True)
+
+    # Group by field and round, average over seeds
+    grouped = df_all.groupby([field, 'round']).agg({metric: ['mean', 'std']}).reset_index()
+    grouped.columns = [field, 'round', f'{metric}_mean', f'{metric}_std']
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6,4))
+    else:
+        fig = None
+
+    unique_vals = sorted(grouped[field].unique())
+    for val in unique_vals:
+        sub = grouped[grouped[field] == val]
+        ax.plot(sub['round'], sub[f'{metric}_mean'], label=f"{field}={val}")
+        ax.fill_between(sub['round'],
+                        sub[f'{metric}_mean'] - sub[f'{metric}_std'],
+                        sub[f'{metric}_mean'] + sub[f'{metric}_std'],
+                        alpha=0.2)
+    ax.set_title(f"PrivateFairGreedy: {metric} vs. rounds for varying {field}")
+    ax.set_xlabel("Round")
+    ax.set_ylabel(metric)
+    ax.legend()
+    plt.tight_layout()
+    if save_fig and fig_path:
+        plt.savefig(fig_path)
+        print(f"Saved figure to {fig_path}")
+    if fig is not None:
+        plt.show()
+        sys.exit()
+
+
 def main_adult(dir="", mult=1, x_dim=4, y_dim=3.5):
     selected = [
         # "Random",

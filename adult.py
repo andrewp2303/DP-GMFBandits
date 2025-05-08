@@ -228,29 +228,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--plot", action="store_true", help="Enable plotting (default: disabled)"
     )
+    parser.add_argument(
+        "--plot-compare",
+        nargs=2,
+        metavar=("FIELD", "METRIC"),
+        help="Plot PrivateFairGreedy comparison across exp_dirs for FIELD and METRIC, e.g. --plot-compare ad pseudo_regret",
+    )
     args = parser.parse_args()
 
     exp_dirs = []
     n_samples_per_groups = (50001,)
-    epsilons = (15,)
+    epsilons = (5, 10, 20, 40, 80)
+    deltas = (0.1,)
     alpha_delta_epsilons = ((0.9, 0.9),)
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
-            for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
-                exp_dir = main(
-                    n_samples_per_group=n_samples_per_group,
-                    n_seeds=10,
-                    plot_flag=args.plot,
-                    T=50000,
-                    epsilon=epsilon,         # total epsilon budget for DPFairGreedy
-                    delta=0.1,          # total delta budget for DPFairGreedy
-                    L_tilde=None,       # max row norm of X+Y, will be computed based on data
-                    alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
-                    alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
-                    delta_tilde=0.005,   # slack on the relative rank delta for advanced composition
-                    noise_type_rank="zcdp",
-                    rescale_bound=None,
-                )
+            for delta in deltas:
+                for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
+                    exp_dir = main(
+                        n_samples_per_group=n_samples_per_group,
+                        n_seeds=4,
+                        plot_flag=args.plot,
+                        T=10000,
+                        epsilon=epsilon,         # total epsilon budget for DPFairGreedy
+                        delta=delta,          # total delta budget for DPFairGreedy
+                        L_tilde=None,       # max row norm of X+Y, will be computed based on data
+                        alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
+                        alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
+                        delta_tilde=0.005,   # slack on the relative rank delta for advanced composition
+                        noise_type_rank="zcdp",
+                        rescale_bound=None,
+                    )
                 exp_dirs.append(exp_dir)
 
     print("\n-------------------------- OUTPUT DIRS BY VARIABLES --------------------------\n")
@@ -258,3 +266,38 @@ if __name__ == "__main__":
         for epsilon in epsilons:
             for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
                 print(f"Output for n_samples={n_samples_per_group}, epsilon={epsilon}, (alpha_delta, alpha_eps)=({alpha_delta}, {alpha_eps}): \n{exp_dir}\n")
+
+    # Plot comparison if requested
+    if args.plot_compare:
+        field, metric = args.plot_compare
+        # Validate field and metric
+        valid_fields = {'eps', 'ad', 'ae', 'nr', 'del'}
+        valid_metrics = {
+            'pseudo_regret',
+            'pseudo_fair_regret',
+            'pseudo_instant_regret',
+            'pseudo_instant_fair_regret',
+            'exp_reward_policy',
+            'exp_reward_opt',
+            'fair_reward_policy',
+            'fair_reward_opt',
+        }
+        metric_aliases = {
+            'fair_pseudo_regret': 'pseudo_fair_regret',
+            'regret': 'pseudo_regret',
+            'fair_regret': 'pseudo_fair_regret',
+        }
+        if field not in valid_fields:
+            print(f"Error: Field '{field}' is not valid. Choose from: {sorted(valid_fields)}")
+            exit(1)
+        if metric in metric_aliases:
+            print(f"[INFO] Interpreting metric '{metric}' as '{metric_aliases[metric]}'")
+            metric = metric_aliases[metric]
+        if metric not in valid_metrics:
+            print(f"Error: Metric '{metric}' is not valid. Choose from: {sorted(valid_metrics)}")
+            exit(1)
+        if not exp_dirs:
+            print("No experiment directories found for plotting.")
+        else:
+            print(f"\nPlotting PrivateFairGreedy comparison for varying {field} and metric {metric}...\n")
+            plot_privatefairgreedy_across_fields(exp_dirs, field=field, metric=metric, save_fig=True, fig_path=f"{exp_dir}plots/{metric}_{field}.png")

@@ -37,6 +37,37 @@ python adult.py
 
 All experimental outputs are saved in an `exps/` subdirectory with automatic trial indexing and metadata-encoded paths (`adult.py` will never overwrite previous experimental outputs).
 
+### Plotting and Aggregate Comparison
+
+You can generate all plots for a specific experiment directory using `plot.py` with the `--plot-path` flag. This is useful for quickly visualizing results from a single run without rerunning the experiment.
+
+```bash
+python plot.py --plot-path <EXP_DIR>
+```
+
+Replace `<EXP_DIR>` with the path to your experiment output directory (e.g., `exps/adult/eps=10_T=5000_del=0.1_ns=1_Lt=1.3762_nt=gaussian_nr=zcdp_ad=0.9_ae=0.9_trial=1/`).
+
+---
+
+You can also generate aggregate comparison plots of PrivateFairGreedy results across parameter settings using the `--plot-compare` flag in `adult.py`:
+
+```bash
+python adult.py --plot-compare <FIELD> <METRIC>
+```
+
+* `<FIELD>`: The parameter to vary (e.g., `eps`, `ad`, `ae`, `nr`, `del`).
+* `<METRIC>`: The metric to plot (e.g., `pseudo_regret`, `pseudo_fair_regret`).
+
+This will aggregate results from all matching experiment directories and produce a summary plot (saved in the output directory) comparing the specified metric across the chosen parameter. This is useful for post-experiment analysis and deciding on effective parameter settings.
+
+**Example:**
+
+```bash
+python adult.py --plot-compare eps pseudo_fair_regret
+```
+
+This command will plot the mean and standard deviation of `pseudo_fair_regret` for `PrivateFairGreedy` across all experiments with varying `eps` (e.g. total epsilon) values.
+
 ### Example Output Directory
 
 ```text
