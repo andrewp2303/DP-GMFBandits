@@ -4,7 +4,7 @@ import pandas as pd
 from folktables import ACSDataSource
 from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, PolynomialFeatures
+from sklearn.preprocessing import StandardScaler, PolynomialFeatures, MinMaxScaler
 
 from policies import FairBanditProblem
 
@@ -30,15 +30,17 @@ class RealData(FairBanditProblem):
         self.xs = self.xs[shuffled_indexes]
         self.ys = self.ys[shuffled_indexes]
 
-    def __init__(self, xs, ys, mu_star, noise_magnitude=None):
+    def __init__(self, xs, ys, mu_star, noise_magnitude=None, L_tilde=None):
         self.t = -1
         self.n_arms = xs.shape[1]
         self.d = xs.shape[2]
         self.xs = xs
         self.ys = ys
         self.noise_magnitude = noise_magnitude
+        self.L_tilde = L_tilde
         true_rewards = np.einsum("ijk,k->ij", self.xs, mu_star)
-
+        
+        print(f"[INFO] Number of features: {self.d}")
         super().__init__(n_arms=xs.shape[1], mu_star=mu_star, true_rewards=true_rewards)
 
 
@@ -54,26 +56,66 @@ def load_adult(
     seed=42,
     data_dir="data/adult_proc/",
     noise_magnitude=None,
+    rescale_bound=None,
+    L_tilde=None,
 ):
     data_str = get_dataset_string(
         group, density, n_samples_per_group, seed, poly_degree
     )
     data_pre_dir = f"{data_dir}{data_str}/"
     data_dict = None
-    while data_dict is None:
+    
+    # Check if rescaled data is requested and exists
+    if rescale_bound is not None:
+        try:
+            data_dict = np.load(f"{data_pre_dir}data_rescaled_b={rescale_bound}.npz")
+            print(f"Loading rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+        except:
+            print(f"Rescaled data with bound [-{rescale_bound},{rescale_bound}] not found. Will create it.")
+            
+    # If rescaled data wasn't loaded, try to load original data
+    if data_dict is None:
         try:
             data_dict = np.load(f"{data_pre_dir}data.npz")
+            
+            # If we need rescaled data but only have original data, create the rescaled version
+            if rescale_bound is not None:
+                print(f"Creating rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+                data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
+                
         except:
-            print("preprocessed data not found. start preprocessing adult...")
+            print("Preprocessed data not found. Start preprocessing adult...")
             preprocess_folktables(
                 group, density, poly_degree, n_samples_per_group, seed, data_dir
             )
+            
+            # After preprocessing, load the data
+            data_dict = np.load(f"{data_pre_dir}data.npz")
+            
+            # If rescaling is needed, do it now
+            if rescale_bound is not None:
+                print(f"Creating rescaled data with bound [-{rescale_bound},{rescale_bound}]")
+                data_dict = rescale_data(data_dict, rescale_bound, data_pre_dir)
+    
+    # Compute appropriate L_tilde if not manually set
+    if L_tilde is None or L_tilde < 0:
+        max_norm_sq = 0
+        for x_group, y_group in zip(data_dict["x"], data_dict["y"]):
+            for x_vec, y_val in zip(x_group, y_group):
+                total_norm_sq = np.linalg.norm(x_vec) ** 2 + y_val ** 2
+                if total_norm_sq > max_norm_sq:
+                    max_norm_sq = total_norm_sq
+        estimated_L_tilde = np.sqrt(max_norm_sq)
+        print(f"[INFO] Computed L_tilde based on data: {estimated_L_tilde:.4f}")
+    else:
+        estimated_L_tilde = L_tilde
 
     return RealData(
         data_dict["x"],
         data_dict["y"],
         data_dict["mu_star"],
         noise_magnitude=noise_magnitude,
+        L_tilde=estimated_L_tilde,
     )
 
 
@@ -130,7 +172,7 @@ def preprocess_folktables(
             # 'COW',  #CLASS OF WORKER
             # 'SCHL', # EDUCATION,  almost ordered
             "MAR",  # MARITAL STATUS
-            "RELP",  # Relationship
+            # "RELP",  # Relationship
             "SEX",  # Sex
             "RAC1P",  # RACE
         ]
@@ -154,8 +196,8 @@ def preprocess_folktables(
             # *[f'OCCP_{i}' for i in range(18)],
             "OCCP",
             "POBP",
-            *[f"RELP_{i + 1}" for i in range(17)],
-            # 'RELP',
+            # *[f"RELP_{i + 1}" for i in range(17)],
+            'RELP',
             "WKHP",
             # 'SEX',
             *[f"SEX_{i + 1}" for i in range(2)],
@@ -199,7 +241,7 @@ def preprocess_folktables(
 
         selected_groups = []
         for i in group_numbers:
-            n_samples = np.sum((group == i).astype(float))
+            n_samples = np.sum((group == i).astype(np.float64))
             if n_samples >= n_samples_per_group:
                 selected_groups.append(i)
 
@@ -252,7 +294,7 @@ def preprocess_folktables(
     y_groups = [y[group == i] for i in selected_groups]
     for i, yg in enumerate(y_groups):
         sg = selected_groups[i]
-        n_samples = np.sum((group == sg).astype(float))
+        n_samples = np.sum((group == sg).astype(np.float64))
         plt.hist(
             yg,
             cumulative=True,
@@ -311,5 +353,77 @@ def preprocess_folktables(
     plt.show()
 
 
+def rescale_data(data_dict, bound, data_pre_dir):
+    """Rescale the data to the range [-bound, bound] feature-by-feature.
+    
+    Args:
+        data_dict: Dictionary containing 'x', 'y', 'mu_star', and 'selected_groups'
+        bound: The bound value for rescaling
+        data_pre_dir: Directory to save the rescaled data
+        
+    Returns:
+        Rescaled data dictionary
+    """
+    x = data_dict['x']
+    y = data_dict['y']
+    mu_star = data_dict['mu_star']
+    selected_groups = data_dict['selected_groups']
+    
+    # Get original shapes to restore later
+    original_x_shape = x.shape
+    original_y_shape = y.shape
+    
+    # Reshape for rescaling (we need to rescale each feature separately)
+    # x shape is (n_samples, n_groups, n_features)
+    x_reshaped = x.reshape(-1, x.shape[2])  # Reshape to (n_samples*n_groups, n_features)
+    
+    # Now scale the features
+    x_scaler = MinMaxScaler(feature_range=(-bound, bound))
+    x_rescaled = x_scaler.fit_transform(x_reshaped)
+    
+    # Reshape x back to original shape
+    x_rescaled = x_rescaled.reshape(original_x_shape)
+    
+    # Rescale y (output) to [-bound, bound]
+    y_reshaped = y.reshape(-1, 1)  # Reshape to (n_samples*n_groups, 1)
+    y_scaler = MinMaxScaler(feature_range=(-bound, bound))
+    y_rescaled = y_scaler.fit_transform(y_reshaped)
+    y_rescaled = y_rescaled.reshape(original_y_shape)
+    
+    # We need to adjust mu_star to account for the rescaling
+    # This ensures that x @ mu_star still approximates y after rescaling
+    # We can solve for new mu_star using least squares on the rescaled data
+    x_flat = x_rescaled.reshape(-1, x_rescaled.shape[2])
+    y_flat = y_rescaled.reshape(-1)
+    mu_star_rescaled = np.linalg.solve(
+        (x_flat.transpose() @ x_flat) + 1e-8 * np.eye(x_flat.shape[1]),
+        x_flat.transpose() @ y_flat,
+    )
+    
+    # Save the rescaled data
+    np.savez(
+        f"{data_pre_dir}data_rescaled_b={bound}.npz",
+        mu_star=mu_star_rescaled,
+        x=x_rescaled,
+        y=y_rescaled,
+        selected_groups=selected_groups
+    )
+    
+    # Return the rescaled data dictionary
+    return {
+        'mu_star': mu_star_rescaled,
+        'x': x_rescaled,
+        'y': y_rescaled,
+        'selected_groups': selected_groups
+    }
+
 if __name__ == "__main__":
-    load_adult()
+    # Test the rescaling functionality
+    load_adult(
+        group="RAC1P",
+        density=1,
+        poly_degree=1,
+        n_samples_per_group=5002,
+        seed=42,
+        rescale_bound=1
+    )

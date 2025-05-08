@@ -22,7 +22,7 @@ class FairBanditProblem:
 
     @staticmethod
     def get_rewards_ecdfs_from_rewards(rewards, rs):
-        indic = (rewards <= rs).astype(float)
+        indic = (rewards <= rs).astype(np.float64)
         return np.mean(indic, axis=0)
 
     def get_context(self):
@@ -84,7 +84,6 @@ class Policy:
     def get_mu_estimate(self):
         return 0
 
-
 class RidgePolicy(Policy, ABC):
     def __init__(self, reg_param, d):
         self.online_ridge = OnlineRidge(reg_param, d)
@@ -94,42 +93,10 @@ class RidgePolicy(Policy, ABC):
     def get_mu_estimate(self):
         return self.online_ridge.theta
 
-
-class OraclePolicy(Policy, ABC):
-    def __init__(self, P: FairBanditProblem):
-        self.P = P
-
-    def get_mu_estimate(self):
-        return self.P.mu_star
-
-
 class Random(Policy):
     def select_arm(self, X):
         n_arms = len(X[:, 0])
         return np.random.randint(low=0, high=n_arms)
-
-
-class Optimal(OraclePolicy):
-    def __init__(self, reg_param, d, P):
-        super().__init__(P)
-
-    def select_arm(self, X):
-        n_arms = len(X[:, 0])
-        est_rewards = [np.dot(X[a], self.P.mu_star) for a in range(n_arms)]
-        arg_max = np.argwhere(est_rewards == np.max(est_rewards))[0, :]
-        return np.random.choice(arg_max)
-        # return np.random.randint(low=0, high=n_arms)
-
-
-class OptFair(OraclePolicy):
-    def __init__(self, P: FairBanditProblem):
-        super().__init__(P)
-
-    def select_arm(self, X):
-        rs = np.einsum("jk,k->j", X, self.P.mu_star)
-        cdfs = self.P.get_cdfs_estimate(rs)
-        return np.argmax(cdfs), dict(cdfs=cdfs)
-
 
 class Greedy(RidgePolicy):
     def select_arm(self, X):
@@ -167,7 +134,7 @@ class FairGreedy(RidgePolicy):
         X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
         rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
         rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
-        indic = (rewards <= rs).astype(float)
+        indic = (rewards <= rs).astype(np.float64)
         ecdfs = np.mean(indic, axis=0)
 
         # Select Arm
@@ -190,152 +157,6 @@ class FairGreedy(RidgePolicy):
         self.rewards.append(r)
 
         self.t0 = t0_new
-
-
-class FairPrivateGreedy(RidgePolicy):
-    def __init__(self, reg_param, d, mu_noise_level):
-        super().__init__(reg_param, d)
-        self.mu_noise_level = mu_noise_level
-        self.t = 0
-        self.t0 = 0
-        self.ecdf_contexts = []
-        self.actions = []
-        self.rewards = []
-
-    ###
-    def objfun(self, beta, vector_M, M_dims):
-        M = vector_M.reshape(M_dims)
-        return beta.transpose() @ M @ beta
-    
-    def constraint(self, beta, d):
-        return beta[d-1] + 1
-
-    ###
-    # Bound B for context vectors and rewards
-    # Assert d < r
-    def ridge_privacy(self, X, reward, B, epsilon_not, delta_not, r_val):
-        w = np.sqrt((4 * (B**2) * (np.sqrt(2 * r_val * np.log(4 / delta_not)) + np.log(4 / delta_not))) / epsilon_not)
-
-        reward = np.array(reward)[:, np.newaxis]
-        print(X)
-        print(reward)
-        A = np.concatenate((X, reward), axis=1)
-
-        d = A.shape[1]
-        w_I = w * np.identity(d)
-        A_prime = np.concatenate((A, w_I), axis=0)
-
-        n = len(A[:, 0])
-        R = np.random.randn(r_val, n + d)
-        
-        M = (1 / r_val) * (R @ A_prime).transpose() @ (R @ A_prime)
-
-        constraint_f = partial(self.constraint, d=d)
-
-        vector_M = M.flatten()
-        M_dims = (d, d)
-        constraints = {'type': 'eq', 'fun': constraint_f}
-        beta_not = np.zeros(d)
-
-        privateRR = scipy.optimize.minimize(self.objfun, beta_not, args=(vector_M, M_dims), constraints=constraints)
-        beta_result = privateRR.x
-        return M, beta_result
-
-    def select_arm(self, X):
-        n_arms = len(X[:, 0])
-        self.t += 1
-        if self.t < 3:
-            return np.random.randint(low=0, high=(n_arms - 1))
-        
-        epsilon_not = 0.1
-        delta_not = 10**(-9)
-        B = 100
-        r_val = self.d + 10
-        chosen_vectors = np.array([np.array(self.ecdf_contexts)[i, action] for i, action in enumerate(self.actions)])
-        mu_hat = self.ridge_privacy(chosen_vectors, self.rewards, B, epsilon_not, delta_not, r_val)[1][:-1]
-
-        # Compute ECDF
-        X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
-        rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
-        rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
-        indic = (rewards <= rs).astype(float)
-        ecdfs = np.mean(indic, axis=0)
-
-        # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
-        return np.random.choice(arg_max)
-
-    def update_history(self, X, r, a):
-        t0_new = np.floor((self.t - 1) / 2)
-        if self.t0 != t0_new:
-            self.online_ridge.update(
-                self.ecdf_contexts[0][self.actions[0]], self.rewards[0]
-            )
-            self.ecdf_contexts, self.actions, self.rewards = (
-                self.ecdf_contexts[1:],
-                self.actions[1:],
-                self.rewards[1:],
-            )
-        self.ecdf_contexts.append(X)
-        self.actions.append(a)
-        self.rewards.append(r)
-
-        self.t0 = t0_new
-
-
-class FairGreedyKnownCDF(RidgePolicy):
-    def __init__(self, reg_param, d, noise_magnitude, P: FairBanditProblem):
-        super().__init__(reg_param, d)
-        self.P = P
-        self.noise_magnitude = noise_magnitude
-
-    def select_arm(self, X):
-        t = self.online_ridge.updates_count + 1
-        mu_hat = self.online_ridge.theta + (
-            self.noise_magnitude / np.sqrt(t)
-        ) * np.random.randn(self.d)
-        rs = np.einsum("jk,k->j", X, mu_hat)
-        est_cdfs = self.P.get_cdfs_estimate(rs)
-        arg_max = np.argwhere(est_cdfs == np.max(est_cdfs))[0, :]
-        return np.random.choice(arg_max)
-        # return np.random.randint(low=0, high=n_arms)
-
-    def update_history(self, X, r, a):
-        self.online_ridge.update(X[a], r)
-
-
-class FairGreedyKnownMuStar(OraclePolicy):
-    def __init__(self, P: FairBanditProblem):
-        super().__init__(P)
-        self.t = 0
-        self.rewards = None
-
-    def select_arm(self, X):
-        n_arms = len(X[:, 0])
-        self.t += 1
-        if self.t < 2:
-            return np.random.randint(low=0, high=(n_arms - 1))
-
-        # Compute ECDF
-        rs = np.einsum("ijk,k->ij", X[None, :], self.P.mu_star)
-        indic = (self.rewards <= rs).astype(float)
-        ecdfs = np.mean(indic, axis=0)
-
-        # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
-        return np.random.choice(arg_max)
-
-    def update_history(self, X, r, a):
-        rs = np.einsum("ijk,k->ij", X[None, :], self.P.mu_star)
-        if self.rewards is None:
-            self.rewards = rs
-        self.rewards = np.concatenate((self.rewards, rs), axis=0)
-
-
-class FairGreedyNoNoise(FairGreedy):
-    def __init__(self, reg_param, d):
-        super().__init__(reg_param, d, mu_noise_level=0)
-
 
 class OFUL(RidgePolicy):
     def __init__(self, reg_param, d, expl_coeff=1.0):
@@ -375,11 +196,225 @@ class OFUL(RidgePolicy):
     def update_history(self, X, r, a):
         self.online_ridge.update(X[a], r)
 
+class BinaryMechanism:
+    def __init__(self, epsilon, delta, d, T, L_tilde, alpha_regression):
+        self.epsilon = epsilon
+        self.delta = delta
+        self.T = T
+        self.L_tilde = L_tilde
+        self.d = d
+        self.shape = (d + 1, d + 1)
+        self.alpha_regression = alpha_regression
+        self.logT = int(np.ceil(np.log2(T)))
+        self.m = self.logT + 1
 
-class FairOFUL(OFUL):
-    def __init__(self, reg_param, d, expl_coeff=1.0):
-        super().__init__(reg_param, d, expl_coeff=expl_coeff)
-        self.t = 0
+        self.noise = None
+
+        self.alpha = [np.zeros(self.shape) for _ in range(self.m)]
+        self.alpha_noisy = [np.zeros(self.shape) for _ in range(self.m)]
+
+        self.current_time = 0
+
+    def _wishart_noise(self):
+        self.k = int(
+            self.d
+            + 1
+            + np.ceil(
+                224
+                * self.m
+                * np.power(self.epsilon, -2)
+                * np.log(8 * self.m / self.delta)
+                * np.log(2 / self.delta)
+            )
+        )
+        self.cov_matrix = self.L_tilde**2 * np.eye(self.shape[0])
+        self.shift = (
+            self.L_tilde**2
+            * (
+                np.sqrt(self.m * self.k)
+                - np.sqrt(self.d)
+                - np.sqrt(2 * np.log(8 * self.T / self.alpha_regression))
+            )
+            ** 2
+        ) - (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m * self.k)
+            * (np.sqrt(self.d) + np.sqrt(2 * np.log(8 * self.T / self.alpha_regression)))
+        )
+        samples = np.random.multivariate_normal(
+            mean=np.zeros(self.shape[0]), cov=self.cov_matrix, size=self.k
+        )
+        wishart_matrix = samples.T @ samples
+        return wishart_matrix
+
+    def _shifted_wishart_noise(self):
+        return self._wishart_noise() - self.shift * np.eye(self.shape[0])
+
+    def _gaussian_noise(self):
+        sigma_noise = (
+            4
+            * self.L_tilde**2
+            * np.sqrt(self.m)
+            * np.log(4 / self.delta)
+            / self.epsilon
+        )
+        gamma = (
+            sigma_noise
+            * np.sqrt(2 * self.m)
+            * (4 * np.sqrt(self.d) + 2 * np.log(2 * self.T / self.alpha_regression))
+        )
+        noise = np.random.normal(0, sigma_noise, self.shape)
+        noise = (noise + noise.T) / np.sqrt(2)
+        return noise + 2 * gamma * np.eye(self.shape[0])
+        # return noise
+
+    def define_noise(self, noise_type_reg="gaussian"):
+        if noise_type_reg == "gaussian":
+            self.noise = self._gaussian_noise
+        elif noise_type_reg == "wishart":
+            self.noise = self._wishart_noise
+        elif noise_type_reg == "shifted_wishart":
+            self.noise = self._shifted_wishart_noise
+        else:
+            print(f"Invalid noise type: {noise_type_reg}")
+            raise ValueError(
+                "Invalid noise type. Choose 'gaussian', 'wishart', or 'shifted_wishart'."
+            )
+
+    def update_sum(self, new_value):
+        self.current_time += 1
+        t = self.current_time
+        if t > self.T:
+            raise ValueError("Stream length exceeds the specified T.")
+
+        # Find the least significant 1-bit in binary representation of t
+        i = 0
+        while (t >> i) & 1 == 0:
+            i += 1
+
+        # Aggregate values for the new p-sum
+        sum_alpha = new_value
+        for j in range(i):
+            sum_alpha += self.alpha[j]
+            self.alpha[j] = np.zeros(self.shape)
+            self.alpha_noisy[j] = np.zeros(self.shape)
+
+        # Update alpha[i]
+        self.alpha[i] = sum_alpha
+        noise = self.noise()
+        self.alpha_noisy[i] = self.alpha[i] + noise
+
+        # Output the sum of active noisy p-sums
+        estimate = np.zeros(self.shape)
+        for j in range(self.logT + 1):
+            if (t >> j) & 1:
+                estimate += self.alpha_noisy[j]
+                # NOTE: uncomment below for debugging/noise removal
+                # estimate += self.alpha[j]
+
+        return estimate
+        # uncomment below for debugging
+        # return estimate + np.eye(self.shape[0]) * 0.01
+
+
+class OnlinePrivate:
+    def __init__(
+        self, d, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param
+    ):
+        self.private_mechanism = BinaryMechanism(
+            epsilon=epsilon,
+            delta=delta,
+            d=d,
+            T=T,
+            L_tilde=L_tilde,
+            alpha_regression=alpha_regression,
+        )
+        self.private_mechanism.define_noise(noise_type_reg)
+        self.theta = np.zeros(d)
+        self.updates_count = 0
+        self.XTX = reg_param * np.eye(d)
+        self.XTXinv = np.eye(d) / reg_param  # Start with identity matrix for inversion
+        self.XTy = np.zeros(d)
+
+    def update(self, X, y):
+        self.updates_count += 1
+        xy = np.concatenate((X, np.array([y])))
+        ata = np.outer(xy, xy)
+        M = self.private_mechanism.update_sum(ata)
+        self.XTX = M[:-1, :-1]
+        self.XTy = M[:-1, -1]
+        self.XTXinv = np.linalg.inv(self.XTX)
+        self.theta = self.XTXinv @ self.XTy
+
+    def predict(self, X):
+        return np.dot(X, self.theta)
+
+
+class PrivateRidgePolicy(Policy, ABC):
+    def __init__(
+        self, T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
+    ):
+        self.online_ridge = OnlinePrivate(
+            T=T / 2,  # We only use the first T/2 rounds for regression
+            epsilon=epsilon,
+            delta=delta,
+            L_tilde=L_tilde,
+            alpha_regression=alpha_regression,
+            noise_type_reg=noise_type_reg,
+            reg_param=reg_param,
+            d=d,
+        )
+        self.reg_param = reg_param
+        self.d = d
+
+    def get_mu_estimate(self):
+        return self.online_ridge.theta
+
+class PrivateFairGreedy(PrivateRidgePolicy):
+    def __init__(self, T, epsilon, delta, delta_tilde, L_tilde, alpha_regression, noise_type_reg, noise_type_rank,reg_param, d, n_arms, alpha_eps, alpha_delta):
+        # TODO: determine a non-naive epsilon split across regression and relative ranks
+        self.T = T
+        self.n_arms = n_arms
+        self.noise_type_rank = noise_type_rank
+        self.eps_regression = epsilon * alpha_eps
+        self.eps_relrank = epsilon - self.eps_regression
+        self.delta_tilde = delta_tilde
+        self.delta = delta
+        self.delta_regression = self.delta * alpha_delta
+        if self.noise_type_rank == "approx":
+            self.delta_relrank = self.delta - self.delta_tilde - self.delta_regression
+            if self.delta_relrank < 0:
+                raise ValueError("Delta for Relative Ranks is negative, make sure delta_tilde is small enough")
+        elif self.noise_type_rank == "zcdp":
+            self.delta_relrank = self.delta - self.delta_regression
+
+        # n_releases = number of rounds (T)
+        # NOTE: even though there are n_arms, our notion of adjacency is that only one X_t,k differs
+        # Hence, we use sequential composition over T rounds, and parallel composition over n_arms arms
+        n_releases = self.T
+
+        if self.noise_type_rank == "approx":
+            # Per-release (per-arm) epsilon ε bounded by ε < ε_relrank / sqrt(2 * n_releases * ln(1/δ̃)) by advanced composition (DRV10)
+            self.eps_relrank_release = self.eps_relrank / np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde))
+            # Per-release (per-arm) delta δ bounded by δ < (δ_relrank - δ̃) / n_releases by advanced composition (DRV10)
+            self.delta_relrank_release = self.delta_relrank / n_releases
+
+            # Assert that total epsilon actually being used is within bounds, according to DRV10
+            if self.eps_relrank_release * np.sqrt(2 * n_releases * np.log(1 / self.delta_tilde)) > self.eps_relrank:
+                raise ValueError("Total epsilon for Relative Ranks is too large")
+        elif self.noise_type_rank == "zcdp":
+            # Compute per-release rho_rank using the provided formula
+            def compute_rho_rank(eps_rank, delta_rank):
+                log_term = np.log(1/delta_rank)
+                return (2*eps_rank + 4*log_term + 4*np.sqrt(log_term*(log_term+eps_rank))) / 2
+            self.rho_rank = compute_rho_rank(self.eps_relrank, self.delta_relrank)
+        else:
+            raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
+        
+        super().__init__(
+            T, epsilon, delta, L_tilde, alpha_regression, noise_type_reg, reg_param, d
+        )
         self.t = 0
         self.t0 = 0
         self.ecdf_contexts = []
@@ -391,18 +426,34 @@ class FairOFUL(OFUL):
         self.t += 1
         if self.t < 3:
             return np.random.randint(low=0, high=(n_arms - 1))
+        mu_hat = self.get_mu_estimate()
 
-        rewards_ucb = self.get_reward_ucb(X)
+		# ----------------- RANK APPROXIMATION PRIVATIZATION -----------------
+        # NOTE: Per-query sensitivity is 1/N_t -- max change in relative ranks for one arm on neighboring datasets, considering JDP
+        N_t = self.t - 1 - self.t0
+        sensitivity = 1 / N_t
+
+        # Compute noise (depends on mode)
+        if self.noise_type_rank == "approx":
+            sigma = (sensitivity * np.sqrt(2 * np.log(1.25 / self.delta_relrank_release))) / self.eps_relrank_release
+            noise = np.random.normal(0, sigma, n_arms)
+        elif self.noise_type_rank == "zcdp":
+            sigma = 1 / (np.sqrt(N_t * self.rho_rank))
+            noise = np.random.normal(0, sigma, n_arms)
+        else:
+            raise ValueError("Invalid rank mode; must be 'approx' or 'zcdp'")
 
         # Compute ECDF
-        rewards_ucb_hist = np.concatenate(
-            [self.get_reward_ucb(x)[None, :] for x in self.ecdf_contexts], axis=0
-        )
-        indic = (rewards_ucb_hist <= rewards_ucb).astype(float)
-        ecdfs = np.mean(indic, axis=0)
+        X_hist = np.concatenate([c[None, :, :] for c in self.ecdf_contexts])
+        rewards = np.einsum("ijk,k->ij", X_hist, mu_hat)
+        rs = np.einsum("ijk,k->ij", X[None, :], mu_hat)
+        indic = (rewards <= rs).astype(np.float64)
+        relranks = np.mean(indic, axis=0) + noise
+        # Uncomment below for debugging/noise removal
+        # relranks = np.mean(indic, axis=0)
 
         # Select Arm
-        arg_max = np.argwhere(ecdfs == np.max(ecdfs))[0, :]
+        arg_max = np.argwhere(relranks == np.max(relranks))[0, :]
         return np.random.choice(arg_max)
 
     def update_history(self, X, r, a):
@@ -421,65 +472,6 @@ class FairOFUL(OFUL):
         self.rewards.append(r)
 
         self.t0 = t0_new
-
-
-class FairOFULKnownCDF(OFUL):
-    def __init__(self, reg_param, d, P: FairBanditProblem, expl_coeff=1.0):
-        super().__init__(reg_param, d, expl_coeff=expl_coeff)
-        self.P = P
-
-    def select_arm(self, X):
-        rewards_ucb = self.get_reward_ucb(X)
-
-        est_cdfs = self.P.get_cdfs_estimate(rewards_ucb)
-        arg_max = np.argwhere(est_cdfs == np.max(est_cdfs))[0, :]
-
-        # check (careful to ties)
-        # arg_max_rewards = np.argwhere(rewards_ucb == np.max(rewards_ucb))[0, :]
-        # assert np.equal(arg_max, arg_max_rewards).all()
-
-        return np.random.choice(arg_max)
-        # return np.random.randint(low=0, high=n_arms)
-
-
-### Fair algorithm adapted from Patil et al 2021 JMLR: https://www.jmlr.org/papers/volume22/20-704/20-704.pdf
-
-
-class FairLearn(Policy):
-    def __init__(self, reg_param, d, r, alpha, mode="Greedy", expl_coeff=None):
-        self.alpha = alpha
-        self.r = r
-        self.Nselected = np.zeros_like(r)
-        self.t = 0
-        if mode == "Greedy":
-            self.inner_policy = Greedy(reg_param, d)
-        elif mode == "OFUL":
-            assert expl_coeff is not None
-            self.inner_policy = OFUL(reg_param, d, expl_coeff=expl_coeff)
-        else:
-            raise NotImplementedError
-
-    def select_arm(self, X):
-        is_unfair = any(self.r * (self.t - 1) - self.Nselected > self.alpha)
-        if is_unfair:
-            return np.argmax(self.r * (self.t - 1) - self.Nselected)
-        else:
-            return self.inner_policy.select_arm(X)
-
-    def update_history(self, X, r, a):
-        self.inner_policy.update_history(X, r, a)
-        self.Nselected[a] += 1
-        self.t += 1
-
-
-class FairLearnGreedy(FairLearn):
-    def __init__(self, reg_param, d, r, alpha):
-        super().__init__(reg_param, d, r, alpha, mode="Greedy")
-
-
-class FairLearnOFUL(FairLearn):
-    def __init__(self, reg_param, d, r, alpha, expl_coeff):
-        super().__init__(reg_param, d, r, alpha, mode="OFUL", expl_coeff=expl_coeff)
 
 
 def test_policy(
