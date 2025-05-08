@@ -18,6 +18,7 @@ def main(
     expl_coeff_oful=0.01,  # OFUL exploration coefficient. O is equivalent to Greedy.
     plot_mult=1.2,  # higher value gives a larger plot
     plot_flag=False,
+    plot_compare=False,  # Flag to indicate if we're in plot-compare mode
     epsilon=0.1,
     delta=1e-2,
     L_tilde=None,
@@ -44,6 +45,7 @@ def main(
         T=T,
         compute_density=True,
         plot_flag=plot_flag,
+        plot_compare=plot_compare,
         epsilon=epsilon,
         delta=delta,
         L_tilde=L_tilde,
@@ -81,6 +83,7 @@ def run(
     algo_seeds=None,
     plot_mult=0.8,
     plot_flag=False,
+    plot_compare=False,  # Flag to indicate if we're in plot-compare mode
     epsilon=0.1,
     delta=1e-2,
     L_tilde=None,  # bound s.t. ||X||_2^2 + ||y||_2^2 <= L_tilde^2 -- normed to 1 in data.py
@@ -146,26 +149,50 @@ def run(
 
     if alpha_regression is None:
         alpha_regression = 1/T
-    policies_generators = [
-        # lambda: Random(),
-        lambda: OFUL(reg_param, P.d, expl_coeff_oful),
-        lambda: PrivateFairGreedy(
-            T=T,
-            epsilon=epsilon,
-            delta=delta,
-            delta_tilde=delta_tilde,
-            L_tilde=L_tilde,
-            alpha_regression=alpha_regression,
-            alpha_delta=alpha_delta,
-            alpha_eps=alpha_eps,
-            noise_type_reg=noise_type_reg,
-            noise_type_rank=noise_type_rank,
-            reg_param=reg_param,
-            d=P.d,
-            n_arms=n_arms,
-        ),
-        lambda: FairGreedy(reg_param, P.d, mu_noise_level),
-    ]
+    # Check if we're running in plot-compare mode (passed from main)
+    plot_compare_mode = plot_compare
+    
+    if plot_compare_mode:
+        # When plot-compare flag is used, only run PrivateFairGreedy since that's all that will be used
+        policies_generators = [
+            lambda: PrivateFairGreedy(
+                T=T,
+                epsilon=epsilon,
+                delta=delta,
+                delta_tilde=delta_tilde,
+                L_tilde=L_tilde,
+                alpha_regression=alpha_regression,
+                alpha_delta=alpha_delta,
+                alpha_eps=alpha_eps,
+                noise_type_reg=noise_type_reg,
+                noise_type_rank=noise_type_rank,
+                reg_param=reg_param,
+                d=P.d,
+                n_arms=n_arms,
+            ),
+        ]
+    else:
+        # Normal mode - run all policies
+        policies_generators = [
+            # lambda: Random(),
+            lambda: OFUL(reg_param, P.d, expl_coeff_oful),
+            lambda: PrivateFairGreedy(
+                T=T,
+                epsilon=epsilon,
+                delta=delta,
+                delta_tilde=delta_tilde,
+                L_tilde=L_tilde,
+                alpha_regression=alpha_regression,
+                alpha_delta=alpha_delta,
+                alpha_eps=alpha_eps,
+                noise_type_reg=noise_type_reg,
+                noise_type_rank=noise_type_rank,
+                reg_param=reg_param,
+                d=P.d,
+                n_arms=n_arms,
+            ),
+            lambda: FairGreedy(reg_param, P.d, mu_noise_level),
+        ]
 
     total_ps, total_dfs = [], []
     for policy_gen in policies_generators:
@@ -238,34 +265,47 @@ if __name__ == "__main__":
 
     exp_dirs = []
     n_samples_per_groups = (50001,)
-    epsilons = (5, 10, 20, 40, 80)
+    # epsilons = (1, 5, 15, 50,)
+    epsilons = (15,)
+    # deltas = (0.1, 0.01, 0.001)
     deltas = (0.1,)
-    alpha_delta_epsilons = ((0.9, 0.9),)
+    # alpha_epsilons = (0.9, 0.7, 0.5)
+    alpha_epsilons = (0.9,)
+    alpha_deltas = (0.9, 0.7, 0.5)
+    # alpha_deltas = (0.9,)
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
             for delta in deltas:
-                for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
-                    exp_dir = main(
-                        n_samples_per_group=n_samples_per_group,
-                        n_seeds=4,
-                        plot_flag=args.plot,
-                        T=10000,
-                        epsilon=epsilon,         # total epsilon budget for DPFairGreedy
-                        delta=delta,          # total delta budget for DPFairGreedy
-                        L_tilde=None,       # max row norm of X+Y, will be computed based on data
-                        alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
-                        alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
-                        delta_tilde=0.005,   # slack on the relative rank delta for advanced composition
-                        noise_type_rank="zcdp",
-                        rescale_bound=None,
-                    )
-                exp_dirs.append(exp_dir)
+                for alpha_eps in alpha_epsilons:
+                    for alpha_delta in alpha_deltas:
+                        exp_dir = main(
+                            n_samples_per_group=n_samples_per_group,
+                            n_seeds=10,
+                            plot_flag=args.plot,
+                            plot_compare=args.plot_compare is not None,  # Set to True if --plot-compare flag is used
+                            T=100,
+                            epsilon=epsilon,         # total epsilon budget for DPFairGreedy
+                            delta=delta,          # total delta budget for DPFairGreedy
+                            L_tilde=None,       # max row norm of X+Y, will be computed based on data
+                            alpha_delta=alpha_delta,    # defines delta split between regression and relative rank
+                            alpha_eps=alpha_eps,      # defines epsilon split between regression and relative rank
+                            delta_tilde=0.005,   # slack on the relative rank delta for advanced composition
+                            noise_type_rank="zcdp",
+                            rescale_bound=None,
+                        )
+                        exp_dirs.append(exp_dir)  # Move this inside the innermost loop
 
     print("\n-------------------------- OUTPUT DIRS BY VARIABLES --------------------------\n")
+    # Simplified printing - just iterate through the exp_dirs list directly
+    dir_index = 0
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
-            for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
-                print(f"Output for n_samples={n_samples_per_group}, epsilon={epsilon}, (alpha_delta, alpha_eps)=({alpha_delta}, {alpha_eps}): \n{exp_dir}\n")
+            for delta in deltas:
+                for alpha_eps in alpha_epsilons:
+                    for alpha_delta in alpha_deltas:
+                        if dir_index < len(exp_dirs):
+                            print(f"Output for n_samples={n_samples_per_group}, epsilon={epsilon}, delta={delta}, (alpha_eps, alpha_delta)=({alpha_eps}, {alpha_delta}): \n{exp_dirs[dir_index]}\n")
+                            dir_index += 1
 
     # Plot comparison if requested
     if args.plot_compare:

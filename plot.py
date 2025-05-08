@@ -261,24 +261,45 @@ def plot_privatefairgreedy_across_fields(exp_dirs, field, metric="pseudo_regret"
     grouped.columns = [field, 'round', f'{metric}_mean', f'{metric}_std']
 
     if ax is None:
+        set_figsize_dpi(figsize=[6,4], dpi=200)
         fig, ax = plt.subplots(figsize=(6,4))
     else:
         fig = None
 
     unique_vals = sorted(grouped[field].unique())
+    # Mapping for fields to Greek symbols
+    field_greek_map = {
+        'eps': 'ε',
+        'delta': 'δ',
+        'ad': 'α_δ',  # alpha sub delta
+        'ae': 'α_ε',    # alpha sub epsilon
+        'nr': 'nr',
+        'del': 'δ',
+    }
+    # Mapping for metrics to human-readable names
+    metric_name_map = {
+        'pseudo_regret': 'Pseudo-Regret',
+        'pseudo_fair_regret': 'Fair Pseudo-Regret',
+        'regret': 'Regret',
+        'fair_regret': 'Fair Regret',
+    }
+    field_label = field_greek_map.get(field, field)
+    metric_label = metric_name_map.get(metric, metric)
+
     for val in unique_vals:
         sub = grouped[grouped[field] == val]
-        ax.plot(sub['round'], sub[f'{metric}_mean'], label=f"{field}={val}")
+        ax.plot(sub['round'], sub[f'{metric}_mean'], label=f"{field_label}={val}")
         ax.fill_between(sub['round'],
                         sub[f'{metric}_mean'] - sub[f'{metric}_std'],
                         sub[f'{metric}_mean'] + sub[f'{metric}_std'],
                         alpha=0.2)
-    ax.set_title(f"PrivateFairGreedy: {metric} vs. rounds for varying {field}")
+    ax.set_title(f"PrivateFairGreedy: Varying {field_label}")
     ax.set_xlabel("Round")
-    ax.set_ylabel(metric)
+    ax.set_ylabel(metric_label)
     ax.legend()
     plt.tight_layout()
     if save_fig and fig_path:
+
         plt.savefig(fig_path)
         print(f"Saved figure to {fig_path}")
     if fig is not None:
@@ -322,6 +343,16 @@ def main(mult=0.8, dpi=200, save_fig=True, dir="", x_dim=4, y_dim=3.5, **kwargs)
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--plot-path', type=str, required=True, help='Directory containing plots and results.csv')
+    parser.add_argument('--plot-path', type=str, default="None", help='Directory containing plots and results.csv')
     args = parser.parse_args()
-    main_adult(dir=f"{args.plot_path}/plots/", x_dim=5, y_dim=3.8)
+    if args.plot_path != "None":
+        main_adult(dir=f"{args.plot_path}/plots/", x_dim=5, y_dim=3.8)
+
+    exp_dirs_eps = [f"exps/adult/eps={eps}_T=50000_del=0.1_ns=10_Lt=21.6746_nt=gaussian_nr=zcdp_ad=0.9_ae=0.9_trial=1/" for eps in [1, 5, 15, 50]]
+    exp_dirs_delta = [f"exps/adult/eps=15_T=50000_del={delta}_ns=10_Lt=21.6746_nt=gaussian_nr=zcdp_ad=0.9_ae=0.9_trial=1/" for delta in [0.1, 0.01, 0.001]]
+    exp_dirs_alpha_delta = [f"exps/adult/eps=15_T=50000_del=0.1_ns=10_Lt=21.6746_nt=gaussian_nr=zcdp_ad={alpha_delta}_ae=0.9_trial=1/" for alpha_delta in [0.9, 0.7, 0.5]]
+    exp_dirs_alpha_eps = [f"exps/adult/eps=15_T=50000_del=0.1_ns=10_Lt=21.6746_nt=gaussian_nr=zcdp_ad=0.9_ae={alpha_eps}_trial=1/" for alpha_eps in [0.9, 0.7, 0.5]]
+    plot_privatefairgreedy_across_fields(exp_dirs_eps, field="eps", metric="pseudo_fair_regret", ax=None, save_fig=True, fig_path="exps/adult/varying_eps.png")
+    # plot_privatefairgreedy_across_fields(exp_dirs_delta, field="del", metric="pseudo_fair_regret", ax=None, save_fig=True, fig_path="exps/adult/varying_delta.png")
+    # plot_privatefairgreedy_across_fields(exp_dirs_alpha_delta, field="ad", metric="pseudo_fair_regret", ax=None, save_fig=True, fig_path="exps/adult/varying_ad.png")
+    # plot_privatefairgreedy_across_fields(exp_dirs_alpha_eps, field="ae", metric="pseudo_fair_regret", ax=None, save_fig=True, fig_path="exps/adult/varying_ae.png")
