@@ -407,6 +407,7 @@ class PrivateFairGreedy(PrivateRidgePolicy):
             # Compute per-release rho_rank using the provided formula
             def compute_rho_rank(eps_rank, delta_rank):
                 log_term = np.log(1/delta_rank)
+                # Equivalent to: ρ_rank = (√(log(1/δ_rank) + ε_rank) − √(log(1/δ_rank)))²
                 return eps_rank + 2*log_term - 2*np.sqrt(log_term*(log_term+eps_rank))
             self.rho_rank = compute_rho_rank(self.eps_relrank, self.delta_relrank)
         else:
