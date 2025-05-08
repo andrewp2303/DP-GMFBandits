@@ -37,6 +37,7 @@ def main(
         n_samples_per_group=n_samples_per_group,
         reg_param=reg_param,
         noise_magnitude=noise_magnitude,
+        n_seeds=n_seeds,
         algo_seeds=tuple(range(n_seeds)),
         expl_coeff_oful=expl_coeff_oful,
         T=T,
@@ -114,10 +115,10 @@ def run(
 
     # find trial number manually by checking directories
     nth_trial = 1
-    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+    exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_nr={noise_type_rank}_ad={alpha_delta}_ae={alpha_eps}_{exp_suffix}={nth_trial}/"
     while Path(exp_dir).exists():
         nth_trial += 1
-        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_ad={alpha_delta}_eps={alpha_eps}_{exp_suffix}={nth_trial}/"
+        exp_dir = f"exps/adult/eps={epsilon}_T={T}_del={delta}_ns={n_seeds}_Lt={L_tilde:.4f}_nt={noise_type_reg}_nr={noise_type_rank}_ad={alpha_delta}_ae={alpha_eps}_{exp_suffix}={nth_trial}/"
     Path(f"{exp_dir}plots/").mkdir(parents=True, exist_ok=True)
 
     params = dict(
@@ -230,7 +231,7 @@ if __name__ == "__main__":
 
     exp_dirs = []
     n_samples_per_groups = (50001,)
-    epsilons = (50,)
+    epsilons = (15,)
     alpha_delta_epsilons = ((0.9, 0.9),)
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
@@ -251,9 +252,9 @@ if __name__ == "__main__":
                 )
                 exp_dirs.append(exp_dir)
 
+    print("\n ------------------------------------------------------ \n")
     print("Output directories by variables:")
-
     for n_samples_per_group in n_samples_per_groups:
         for epsilon in epsilons:
             for (alpha_delta, alpha_eps) in alpha_delta_epsilons:
-                print(f"Output directory for n_samples={n_samples_per_group}, epsilon={epsilon}, alpha_d, alpha_eps=({alpha_delta}, {alpha_eps}): \n{exp_dir}")
+                print(f"Output directory for n_samples={n_samples_per_group}, epsilon={epsilon}, (alpha_delta, alpha_eps)=({alpha_delta}, {alpha_eps}): \n{exp_dir}\n")
